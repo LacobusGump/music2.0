@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a110d">
+<title>EAR — GUMP</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--paper:#1a110d;--ink:#c4a088;--dim:#8b4a2e;--brass:#b8753a;--light:#e8cfa0}
+html,body{height:100%;background:var(--paper);color:var(--ink);font-family:Futura,'Century Gothic',Avenir,'Avenir Next',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;overflow:hidden}
+#orb{width:110px;height:110px;border-radius:50%;border:1px solid var(--brass);cursor:pointer;transition:border-color 0.4s,background 0.4s}
+#orb.listening{border-color:var(--light);background:rgba(184,117,58,0.12);animation:pulse 1.4s ease infinite}
+#orb.thinking{border-color:var(--dim);animation:spin 1.2s linear infinite}
+#orb.speaking{border-color:var(--light);background:rgba(232,207,160,0.08)}
+#orb.error{border-color:#c05050}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+#status{margin-top:30px;font-size:0.52em;letter-spacing:0.24em;text-transform:uppercase;color:var(--dim)}
+#txt{margin-top:18px;font-family:Georgia,serif;font-size:0.78em;color:var(--ink);max-width:260px;text-align:center;line-height:1.65;min-height:2.6em;opacity:0.85}
+#back{position:fixed;top:14px;left:14px;font-size:0.52em;letter-spacing:0.14em;color:rgba(184,117,58,0.22);text-decoration:none;transition:color 0.3s}
+#back:hover{color:rgba(184,117,58,0.55)}
+</style>
+</head>
+<body>
+<a id="back" href="/">← home</a>
+<div id="orb" onclick="toggle()"></div>
+<div id="status">tap to speak</div>
+<div id="txt"></div>
+
+<script>
+const WORKER = 'https://ear.jamesmichaeldrum.workers.dev';
+
+let rec = null;
+let state = 'idle';
+
+const orb = document.getElementById('orb');
+const status = document.getElementById('status');
+const txt = document.getElementById('txt');
+
+function set(s, label, body) {
+  state = s;
+  orb.className = s === 'idle' ? '' : s;
+  status.textContent = label;
+  if (body !== undefined) txt.textContent = body;
+}
+
+function toggle() {
+  if (state === 'listening') { rec && rec.stop(); return; }
+  if (state !== 'idle') return;
+  listen();
+}
+
+function listen() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { set('error', 'speech not supported'); return; }
+
+  rec = new SR();
+  rec.lang = 'en-US';
+  rec.interimResults = false;
+
+  rec.onstart = () => set('listening', 'listening', '');
+  rec.onerror = e => set('idle', e.error);
+  rec.onend = () => { if (state === 'listening') set('idle', 'tap to speak'); };
+
+  rec.onresult = async e => {
+    const q = e.results[0][0].transcript;
+    set('thinking', 'thinking', q);
+    const reply = await ask(q);
+    speak(reply);
+  };
+
+  rec.start();
+}
+
+async function ask(q) {
+  try {
+    const r = await fetch(WORKER, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({q})
+    });
+    const d = await r.json();
+    return d.reply || 'no reply';
+  } catch {
+    return 'connection error';
+  }
+}
+
+function speak(reply) {
+  set('speaking', 'speaking', reply);
+  const u = new SpeechSynthesisUtterance(reply);
+  u.rate = 1.05;
+  u.onend = () => set('idle', 'tap to speak');
+  speechSynthesis.speak(u);
+}
+</script>
+</body>
+</html>
