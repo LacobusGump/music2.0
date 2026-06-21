@@ -365,6 +365,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   // ── the player: a state machine driven by real media events, race-guarded against rapid skips ──
   var token = 0, want = false; // `want` = the listener wants sound right now
   function load(i, autoplay){
+    bActive = -1; // switching to album — clear beats active state
     idx = (i % PLAY.length + PLAY.length) % PLAY.length;
     triedFb = false;
     var my = ++token;            // every load stamps a token; only the newest one's events count
@@ -546,7 +547,24 @@ body.paused .track-eq span{animation-play-state:paused;}
     if (a.paused){ if (!a.src){ load(idx, true); } else { want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(++token); } }
     else { a.pause(); paused(); }
   });
-  function advance(){ var j=nextUnmuted(idx); if(j>=0) load(j, true); else { a.pause(); paused(); } } // roll to the next lit song, skipping muted
+  var bActive = -1; // hoisted so advance() and beats IIFE share the same ref
+  function advance(){
+    if (bActive >= 0 && R.beats && R.beats.length) {
+      var nb = (bActive + 1) % R.beats.length;
+      var b = R.beats[nb];
+      bActive = nb;
+      document.querySelectorAll('#beats-list .track').forEach(function(r){ r.classList.remove('on'); });
+      var brows = document.querySelectorAll('#beats-list .track');
+      if (brows[nb]) brows[nb].classList.add('on');
+      a.src = b.f; a.load(); a.play();
+      document.getElementById('now-title').textContent = b.t;
+      document.getElementById('now-sub').textContent = b.s;
+      document.getElementById('now-label').textContent = '— gump on the racks —';
+      document.getElementById('now-from').innerHTML = '';
+      return;
+    }
+    var j=nextUnmuted(idx); if(j>=0) load(j, true); else { a.pause(); paused(); }
+  } // roll to next in active pool — beats loop within beats, album loops within album
   nextBtn.addEventListener('click', advance);
   a.addEventListener('ended', advance);
   a.addEventListener('playing', function(){ if (want) playing(); });                 // fires when audio actually starts (after any buffering)
@@ -675,7 +693,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   (function(){
     var beats=R.beats; if(!beats||!beats.length) return;
     var bl=document.getElementById('beats-list'); if(!bl) return;
-    var bActive=-1;
+    // bActive lives in outer scope — shared with advance()
     beats.forEach(function(b,i){
       var row=document.createElement('div');
       row.className='track'; row.style.marginBottom='4px';
