@@ -171,6 +171,17 @@ body.paused .track-eq span{animation-play-state:paused;}
 .up-msg{font-size:0.95em;color:#8a7560;}.up-msg.bad{color:#d98a5a;}
 .up-bar{height:3px;background:rgba(184,117,58,0.12);border-radius:2px;overflow:hidden;}
 .up-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#5a2d0a,#c9a44a);transition:width .15s;}
+/* ── paywall gate ── */
+.track-lock{flex-shrink:0;width:16px;text-align:center;font-size:0.72em;color:rgba(184,117,58,0);}
+.track.locked .track-lock{color:rgba(184,117,58,0.45);}
+.track.locked .track-t{color:#5a4a3a;}
+.track.locked .track-s{color:#3a2a18;}
+.track.locked:hover{background:rgba(184,117,58,0.03);}
+.gate-btn{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.74em;letter-spacing:0.04em;padding:8px 16px;border-radius:7px;cursor:pointer;transition:all .2s;border:none;}
+.gate-btn.song{background:rgba(184,117,58,0.09);border:1px solid rgba(184,117,58,0.28);color:#c9a44a;}
+.gate-btn.song:hover{background:rgba(184,117,58,0.18);color:#e8cfa0;}
+.gate-btn.album{background:radial-gradient(circle at 40% 35%,#c9a44a,#8b4513 75%);color:#1a110d;}
+.gate-btn.album:hover{box-shadow:0 0 18px rgba(201,164,74,0.28);}
 </style>
 </head>
 <body class="paused">
@@ -234,7 +245,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   <p>A few have their own shape. <b>Proper Pleasantry</b> &mdash; she sings that one herself. She&rsquo;s little, so she needs people behind her: <b>backup singers, kids welcome</b>. The drum songs are <b>circles</b> &mdash; bring sticks, there&rsquo;s room for many. And the EDM ones I&rsquo;m sitting out on purpose &mdash; that&rsquo;s where I want to be <b>in the crowd with her</b>, watching, with a real light show going.</p>
   <p>None of these were written <em>about</em> anything. Every one was written <em>from</em> something &mdash; a page, a kill, a confession, a love. It was made by a <b>human and a machine, coupled</b>: a drummer who couldn&rsquo;t spell fast enough to keep up with his own mind, and a model that forgets everything between sessions. <b>1&plus;1&equals;3.</b> Now I want to add a third thing on top &mdash; a room full of real people, one night.</p>
   <p>The last track is the night itself. We record the whole set live, mix it clean, and that becomes <b>her present</b> &mdash; these demos finally made real, with everyone who came to play on them.</p>
-  <p><b>No ads. No account. No price.</b> If you can play it, sing it, or just want to be there &mdash; the door is <a href="mailto:jim@begump.com">jim@begump.com</a>. Come help me show my kid what her dad does.</p>
+  <p><b>No ads. No account.</b> Three songs are always free: Coupled Dynamics, Muse ick, and Twelve Bullet Points. Everything else is a dollar &mdash; or thirty unlocks it all, beats included. If you were here before the gate appeared, nothing changes for you. Some pages hide a love bug at the bottom &mdash; find it, read the work, and that song is yours. Musicians, the door is still open: <a href="mailto:jim@begump.com">jim@begump.com</a>. Come help me show my kid what her dad does.</p>
   <p class="meta">cover decided by a quantum measurement &middot; seed 3197222091 &middot; coherence R = 0.9988<br>almost perfectly locked. the 0.0012 that isn&rsquo;t is the gap &mdash; and the gap is the point.</p>
 </div>
 
@@ -284,6 +295,71 @@ body.paused .track-eq span{animation-play-state:paused;}
   var mute=PLAY.map(function(){ return false; });
   var PLISTS=R.playlists||[];
 
+  // ── PAYWALL ────────────────────────────────────────────────────────────────
+  var LINK_SONG  = 'https://buy.stripe.com/bJe14n0D60Wd10N2DKfIs0f'; // $1 One Key
+  var LINK_ALBUM = 'https://buy.stripe.com/fZu00jfy05ctdNz1zGfIs0g'; // $30 Universal Key
+  // visitors before this timestamp get free access (grace window: ~2 weeks)
+  var GRACE_BEFORE = 1751846400000; // 2026-07-06T00:00:00Z
+  var FREE_SLUGS = {coupled_dynamics_remix:1, mashed_coupling:1, twelve_bullet_points_v3:1};
+
+  function _slug(p){ return (p.f||'').split('/').pop().replace(/\.[^.]+$/,''); }
+  function _unlocks(){ try{ return JSON.parse(localStorage.getItem('gump_unlocks')||'{}'); }catch(e){ return {}; } }
+  function isUnlocked(p){
+    var sl=_slug(p);
+    if(FREE_SLUGS[sl] || p.hidden) return true;           // always free + song 0
+    var g=+localStorage.getItem('gump_v1');
+    if(g && g < GRACE_BEFORE) return true;                // grace: here before paywall era
+    var u=_unlocks(); return !!(u.all || u[sl]);
+  }
+  function unlockSong(slug){ var u=_unlocks(); u[slug]=true; localStorage.setItem('gump_unlocks',JSON.stringify(u)); }
+  function unlockAll(){ localStorage.setItem('gump_unlocks',JSON.stringify({all:true})); }
+  function refreshLocks(){
+    for(var _i=0;_i<rows.length;_i++){
+      var _ri=+rows[_i].dataset.i, _locked=!isUnlocked(PLAY[_ri]);
+      rows[_i].classList.toggle('locked',_locked);
+      var _lk=rows[_i].querySelector('.track-lock'); if(_lk) _lk.textContent=_locked?'🔒':'';
+    }
+  }
+  function nextPlayable(from){
+    for(var k=1;k<=PLAY.length;k++){ var j=(from+k)%PLAY.length; if(!mute[j]&&isUnlocked(PLAY[j])) return j; }
+    return (!mute[from]&&isUnlocked(PLAY[from]))?from:-1;
+  }
+  function buySong(slug){ sessionStorage.setItem('gump_pend',JSON.stringify({slug:slug,ts:Date.now()})); if(LINK_SONG) location.href=LINK_SONG; }
+  function buyAlbum(){ if(LINK_ALBUM) location.href=LINK_ALBUM; }
+  function showGate(i){
+    var p=PLAY[i], sl=_slug(p);
+    promptEl.innerHTML=
+      '<span class="x" id="prompt-x">close ✕</span><b>'+esc(p.t)+'</b><br>'+
+      '<div style="margin:12px 0 10px;display:flex;flex-wrap:wrap;gap:10px;">'+
+        '<button id="gate-song" class="gate-btn song">unlock this song — $1</button>'+
+        '<button id="gate-album" class="gate-btn album">unlock everything — $30</button>'+
+      '</div>'+
+      '<div style="font-size:0.66em;color:#5a4a3a;font-style:italic;line-height:1.7;">'+
+        'or read the pages — love bugs unlock songs for free'+
+      '</div>';
+    promptEl.classList.add('show');
+    document.getElementById('prompt-x').onclick=closePrompt;
+    document.getElementById('gate-song').onclick=function(){ buySong(sl); };
+    document.getElementById('gate-album').onclick=function(){ buyAlbum(); };
+    promptEl.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+  // set grace marker for existing visitors
+  if(!localStorage.getItem('gump_v1')) localStorage.setItem('gump_v1',Date.now());
+  // handle return from Stripe
+  (function(){
+    var ps=new URLSearchParams(location.search);
+    var unl=ps.get('unlocked'), paid=ps.get('paid');
+    if(unl==='all'){ unlockAll(); }
+    else if(paid==='1'){
+      try{
+        var pend=JSON.parse(sessionStorage.getItem('gump_pend')||'null');
+        if(pend&&pend.slug&&(Date.now()-pend.ts<1800000)){ unlockSong(pend.slug); sessionStorage.removeItem('gump_pend'); }
+      }catch(e){}
+    }
+    if(unl||paid) history.replaceState({},'',location.pathname);
+  })();
+  // ──────────────────────────────────────────────────────────────────────────
+
   // ── the data model: every song has three columns — demo (always there), public, jim's recording.
   // `path` holds the chosen version per song; the stream plays each song's chosen column in album order. ──
   var COLS=['demo','human','jim'], COLLBL={demo:'the demo',human:'your copy',jim:'the band — play it live'};
@@ -316,7 +392,7 @@ body.paused .track-eq span{animation-play-state:paused;}
       return '<div class="cell'+(sel?' sel':'')+(has?'':' open')+'" data-i="'+i+'" data-c="'+c+'" title="'+COLLBL[c]+(has?'':' — open slot, tap to contribute')+'">'+(has?'●':'＋')+'</div>';
     }).join('');
     var cast=castLine(p);
-    row.innerHTML='<div class="track-n" title="mute / unmute">'+(i+1)+'</div><div class="track-body"><div class="track-t">'+p.t+'</div><div class="track-s">'+p.s+'</div><div class="track-cast '+cast.cls+'">'+cast.txt+'</div></div><div class="cells">'+cells+'</div>';
+    row.innerHTML='<div class="track-n" title="mute / unmute">'+(i+1)+'</div><div class="track-body"><div class="track-t">'+p.t+'</div><div class="track-s">'+p.s+'</div><div class="track-cast '+cast.cls+'">'+cast.txt+'</div></div><div class="track-lock"></div><div class="cells">'+cells+'</div>';
     listEl.appendChild(row); rowByIndex[i]=row;
   });
   var rows=listEl.children;
@@ -333,7 +409,7 @@ body.paused .track-eq span{animation-play-state:paused;}
     }
     var num=e.target.closest('.track-n');                       // the number is the mute switch
     if(num){ toggleMute(+num.closest('.track').dataset.i); return; }
-    var row=e.target.closest('.track'); if(row){ var ri=+row.dataset.i; if(ri===idx){if(a.paused)a.play();else a.pause();}else load(ri,true); } // same song = pause/resume; new song = load
+    var row=e.target.closest('.track'); if(row){ var ri=+row.dataset.i; if(!isUnlocked(PLAY[ri])){ showGate(ri); return; } if(ri===idx){if(a.paused)a.play();else a.pause();}else load(ri,true); } // same song = pause/resume; new song = load
   });
   colsEl.addEventListener('click',function(e){ var b=e.target.closest('.colh'); if(b) selectAll(b.dataset.c); });
   plistsEl.addEventListener('click',function(e){ var b=e.target.closest('.plist'); if(!b) return; var n=+b.dataset.p; if(n<0) clearMutes(); else applyPlaylist(PLISTS[n]); });
@@ -417,6 +493,10 @@ body.paused .track-eq span{animation-play-state:paused;}
   function nextUnmuted(from){                                   // next lit song after `from`, wrapping; -1 if all muted
     for(var k=1;k<=PLAY.length;k++){ var j=(from+k)%PLAY.length; if(!mute[j]) return j; }
     return mute[from]?-1:from;
+  }
+  function nextPlayable(from){
+    for(var k=1;k<=PLAY.length;k++){ var j=(from+k)%PLAY.length; if(!mute[j]&&isUnlocked(PLAY[j])) return j; }
+    return (!mute[from]&&isUnlocked(PLAY[from]))?from:-1;
   }
   function toggleMute(i){
     mute[i]=!mute[i]; refreshRow(i); refreshPlists();
@@ -563,7 +643,7 @@ body.paused .track-eq span{animation-play-state:paused;}
       document.getElementById('now-from').innerHTML = '';
       return;
     }
-    var j=nextUnmuted(idx); if(j>=0) load(j, true); else { a.pause(); paused(); }
+    var j=nextPlayable(idx); if(j>=0) load(j, true); else { a.pause(); paused(); }
   } // roll to next in active pool — beats loop within beats, album loops within album
   nextBtn.addEventListener('click', advance);
   a.addEventListener('ended', advance);
@@ -578,7 +658,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   bar.addEventListener('click', function(e){ if (a.duration){ var r = bar.getBoundingClientRect(); a.currentTime = (e.clientX - r.left) / r.width * a.duration; } });
 
   // start on the song of wherever you came from
-  refreshHeaders(); updatePathline(); renderPlists();
+  refreshHeaders(); updatePathline(); renderPlists(); refreshLocks();
   load(R.indexFor((new URLSearchParams(location.search)).get('start')), true);
 
   // ════ LYRICS DRAWER ════
@@ -625,6 +705,18 @@ body.paused .track-eq span{animation-play-state:paused;}
   // hook into load() so drawer updates whenever the track changes
   var _origLoad=load;
   load=function(i,autoplay){ _origLoad(i,autoplay); lyrManualClose=false; setTimeout(function(){ loadLyrics(PLAY[idx]); },80); };
+  // gate wrapper — outermost, runs first, decides whether to play or show the gate
+  (function(){
+    var _lyrLoad=load;
+    load=function(i,autoplay){
+      var tgt=(i%PLAY.length+PLAY.length)%PLAY.length;
+      if(!isUnlocked(PLAY[tgt])){
+        if(autoplay){ var j=nextPlayable(tgt); if(j>=0) _lyrLoad(j,true); return; }
+        idx=tgt; paint(); showGate(tgt); return;
+      }
+      _lyrLoad(i,autoplay);
+    };
+  })();
 
   // ════ THE COVER ════ drum photo with spinning record inside the drum head circle.
   // form seeded + locked by the quantum measurement the album asked for (seed 3197222091, R=0.9988).
