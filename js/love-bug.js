@@ -3,37 +3,34 @@
 // and injects a love bug at the bottom of .page (or body if not found).
 // Clicking it writes to localStorage so /radio/ sees the unlock.
 (function(){
-  // wait for RADIO to be available (playlist.js must load first)
   function init(){
     var R=window.RADIO; if(!R) return;
     var slug=R.slug();
-    // find the song owned by this page
     var song=null;
     for(var i=0;i<R.list.length;i++){
       if(R.list[i].page===slug){ song=R.list[i]; break; }
     }
-    if(!song) return; // no song assigned to this page
+    if(!song) return;
 
-    // derive the audio file slug (same key used by gump_unlocks)
     var fslug=(song.f||'').split('/').pop().replace(/\.[^.]+$/,'');
+    var songIdx=R.list.indexOf(song); // direct index — bypasses SHARED slug redirects
 
-    // always-free songs: no bug needed
     var FREE={coupled_dynamics_remix:1,mashed_coupling:1,twelve_bullet_points_v3:1};
     if(FREE[fslug]) return;
 
-    // check if already unlocked
+    var HARMONIA_PAGES={framework:1,'computation-floor':1,'how-we-work':1,'science-tree':1,chemistry:1,alzheimers:1,'bird-coupling':1,harmonia:1,'the-loop':1};
+    var GRACE_BEFORE=1767225600000; // 2027-01-01
+
     function isUnlocked(){
       try{
         var u=JSON.parse(localStorage.getItem('gump_unlocks')||'{}');
         if(u.all||u[fslug]) return true;
       }catch(e){}
-      // grace check
-      var GRACE_BEFORE=1767225600000; // 2027-01-01
+      if(!!localStorage.getItem('gump_harmonia') && HARMONIA_PAGES[slug]) return true;
       var g=+localStorage.getItem('gump_v1');
       return !!(g && g < GRACE_BEFORE);
     }
 
-    // mark first visit
     if(!localStorage.getItem('gump_v1')) localStorage.setItem('gump_v1',Date.now());
 
     var wrap=document.querySelector('.page')||document.body;
@@ -44,7 +41,7 @@
     function render(unlocked){
       if(unlocked){
         bug.innerHTML='<div style="font-family:Futura,\'Century Gothic\',system-ui,sans-serif;font-size:0.5em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.4);">— unlocked —</div>'+
-          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="/radio/?start='+slug+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
+          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="/radio/?i='+songIdx+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
         bug.style.cursor='default';
       } else {
         bug.innerHTML='<div style="font-size:1.4em;cursor:pointer;" id="lb-icon">🦋</div>'+
@@ -66,7 +63,6 @@
     wrap.appendChild(bug);
   }
 
-  // playlist.js loads synchronously before this, but guard anyway
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',init);
   } else {
