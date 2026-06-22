@@ -306,7 +306,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   function _unlocks(){ try{ return JSON.parse(localStorage.getItem('gump_unlocks')||'{}'); }catch(e){ return {}; } }
   function isUnlocked(p){
     var sl=_slug(p);
-    if(FREE_SLUGS[sl] || p.hidden) return true;           // always free + song 0
+    if(FREE_SLUGS[sl] || p.hidden || p.ghost) return true; // always free + song 0 + butler's tray
     var g=+localStorage.getItem('gump_v1');
     if(g && g < GRACE_BEFORE) return true;                // grace: here before paywall era
     var u=_unlocks(); return !!(u.all || u[sl]);
@@ -325,7 +325,7 @@ body.paused .track-eq span{animation-play-state:paused;}
     return (!mute[from]&&isUnlocked(PLAY[from]))?from:-1;
   }
   function buySong(slug){ sessionStorage.setItem('gump_pend',JSON.stringify({slug:slug,ts:Date.now()})); if(LINK_SONG) location.href=LINK_SONG; }
-  function buyAlbum(){ if(LINK_ALBUM) location.href=LINK_ALBUM; }
+  function buyAlbum(){ sessionStorage.setItem('gump_album_pend',JSON.stringify({ts:Date.now()})); if(LINK_ALBUM) location.href=LINK_ALBUM; }
   function showGate(i){
     var p=PLAY[i], sl=_slug(p);
     promptEl.innerHTML=
@@ -349,7 +349,12 @@ body.paused .track-eq span{animation-play-state:paused;}
   (function(){
     var ps=new URLSearchParams(location.search);
     var unl=ps.get('unlocked'), paid=ps.get('paid');
-    if(unl==='all'){ unlockAll(); }
+    if(unl==='all'){
+      try{
+        var apend=JSON.parse(sessionStorage.getItem('gump_album_pend')||'null');
+        if(apend&&(Date.now()-apend.ts<1800000)){ unlockAll(); sessionStorage.removeItem('gump_album_pend'); }
+      }catch(e){}
+    }
     else if(paid==='1'){
       try{
         var pend=JSON.parse(sessionStorage.getItem('gump_pend')||'null');
@@ -500,7 +505,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   }
   function toggleMute(i){
     mute[i]=!mute[i]; refreshRow(i); refreshPlists();
-    if(mute[i] && i===idx && want){ var j=nextUnmuted(idx); if(j>=0) load(j,true); else { a.pause(); paused(); } } // muted the song playing → move on
+    if(mute[i] && i===idx && want){ var j=nextPlayable(idx); if(j>=0) load(j,true); else { a.pause(); paused(); } } // muted the song playing → move on
   }
   function applyPlaylist(pl){
     var keep={}; pagesToIdx(pl.pages).forEach(function(i){ keep[i]=1; });
