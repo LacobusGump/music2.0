@@ -28,7 +28,7 @@
         if(u.all||u[fslug]) return true;
       }catch(e){}
       // grace check
-      var GRACE_BEFORE=1751846400000;
+      var GRACE_BEFORE=1767225600000; // 2027-01-01
       var g=+localStorage.getItem('gump_v1');
       return !!(g && g < GRACE_BEFORE);
     }
