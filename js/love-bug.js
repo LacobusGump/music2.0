@@ -44,7 +44,7 @@
     function render(unlocked){
       if(unlocked){
         bug.innerHTML='<div style="font-family:Futura,\'Century Gothic\',system-ui,sans-serif;font-size:0.5em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.4);">— unlocked —</div>'+
-          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="/radio/" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
+          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="/radio/?start='+slug+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
         bug.style.cursor='default';
       } else {
         bug.innerHTML='<div style="font-size:1.4em;cursor:pointer;" id="lb-icon">🦋</div>'+
