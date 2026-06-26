@@ -103,13 +103,19 @@ window.RADIO=(function(){
   var B='/v5/beats/', J2='/v5/james/';
   var BEATS=[
     {t:"Feel It",s:"the kit, live",f:J2+"feel_it.mp3"},
+    {t:"Run-Out Groove",s:"the other side of the record",f:J2+"run_out_groove.mp3",locked:true},
     {t:"Paast That",s:"the kit, live",f:B+"paast_that.mp3"},
+    {t:"Paast That",s:"the kit, raw take",f:J2+"paast_that_raw.mp3",locked:true},
+    {t:"Runnin Right",s:"the kit chasing itself",f:J2+"runnin_right.mp3",locked:true},
     {t:"Get In Here",s:"jazz orchestra · glitch",f:B+"get_in_here.mp3"},
+    {t:"Artifact Drop",s:"the error is the note",f:J2+"artifact_drop.mp3",locked:true},
     {t:"Get In There",s:"jazz orchestra · glitch v2",f:B+"get_in_there.mp3"},
     {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
     {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"},
     {t:"Long Way Home",s:"lo-fi",f:B+"long_way_home.mp3"},
+    {t:"Collapsed Runout",s:"the groove giving in",f:J2+"collapsed_runout.mp3",locked:true},
     {t:"Gentrified Anna Marcy",s:"boom bap",f:B+"gentrified_anna_marcy.mp3"},
+    {t:"Right There Mourne",s:"the weight of knowing",f:J2+"right_there_mourne.mp3",locked:true},
     {t:"Dank Ass Meme",s:"dark orchestral · glitch",f:B+"dank_ass_meme.mp3"}
   ];
 
