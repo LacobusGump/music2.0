@@ -132,6 +132,19 @@ a.ms-opt:hover{color:#f6ead0;}
 (function(){'use strict';
 var C={cos:'rgba(110,140,176,',art:'rgba(210,150,120,',life:'rgba(138,168,108,',gold:'rgba(201,164,74,',viol:'rgba(168,138,176,',teal:'rgba(122,160,138,'};
 function col(c){return{'--bc':c+'0.45)','--bg':c+'0.12)'};}
+// ── CLUSTER ENGINE — 22 concurrent shapes, one per object ──
+// Ordered to match SP array: dish,archive,shrine,mirror,bed,window,desk,mobile,computer,market,posters,radio,dog,plantmed,plant,news,drone,drum,rug,basement,shed,build
+var NC=22;
+// Cluster centers in 3D world space (house floor-plan layout: attic top, garden bottom)
+var CX=[-1.5, 1.5,-4.0,-2.8,-3.5, 0.2, 1.4, 2.6, 3.8, 2.0,-4.0,-2.6,-1.2, 0.0, 1.4, 3.0,-4.0,-2.6,-1.2, 0.4, 1.8, 3.4];
+var CY=[ 3.0, 3.0, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2,-0.4,-0.4,-0.4,-0.4,-0.4,-0.4,-2.2,-2.2,-2.2,-2.2,-2.2,-2.2];
+var CZ=[ 0.0, 0.0, 0.0, 0.0,-0.7, 0.0, 0.0, 0.0, 0.0,-0.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+// Canonical shape per cluster (from SP_SHAPE)
+var CS=[0,11,4,6,3,8,5,2,10,2,13,3,7,4,9,12,13,1,6,15,7,9];
+// Cluster base colors (r,g,b) matching SP color categories
+var CR=[0.43,0.66,0.79,0.43,0.79,0.43,0.43,0.66,0.48,0.48,0.82,0.43,0.79,0.43,0.54,0.79,0.43,0.82,0.66,0.48,0.79,0.79];
+var CG=[0.55,0.54,0.64,0.55,0.64,0.55,0.55,0.54,0.63,0.63,0.59,0.55,0.64,0.55,0.66,0.64,0.55,0.59,0.54,0.63,0.64,0.64];
+var CB=[0.69,0.69,0.29,0.69,0.29,0.69,0.69,0.69,0.54,0.54,0.47,0.69,0.29,0.69,0.42,0.29,0.69,0.47,0.69,0.54,0.29,0.29];
 var SP=[
  {id:'dish',c:C.cos,room:'Attic',title:'The Telescope',sub:'Pointed at the edge of what we can name. Honest about every word.',links:[['Sirius B Signal','/research/sirius-signal/',1],['The Sirius Thesis','/research/sirius-thesis/',1],['33 Hz','/research/33hz/',1],['Crop Circles','/research/crop-circles/',1],['Why 137','/research/why-137/',1],['The Line','/research/the-line/',1],['Uncoupled Flight','/research/uncoupled-flight/',1],['The Jumps','/research/the-jumps/',1],['Planet Geom','/research/planetary-geometry/',1]]},
  {id:'archive',c:C.viol,room:'Attic',title:'The Old Trunk',sub:'Dead languages and lost builders, read back through coupling.',links:[['Voynich','/research/voynich/',1],['Proto-Elamite','/research/proto-elamite/',1],['Indus Script','/research/indus-script/',1],['Calendar Decode','/research/calendar-decode/',1],['Lost Civilizations','/research/lost-civilizations/',1],['Sacsayhuaman','/research/sacsayhuaman/',1],['Leedskalnin','/research/leedskalnin/',1],['Pour Stone','/research/pour-stone/',1],['David Wilcock','/research/in-memory/',1],['Ideas from Twitter','/research/from-twitter/',1],['Science Tree','/research/science-tree/']]},
@@ -164,7 +177,9 @@ var cv=document.getElementById('field');
 var gl=cv.getContext('webgl',{antialias:false,alpha:false});
 if(!gl){cv.style.display='none';}
 var MOB=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);
-var N=MOB?30000:100000,DPR=Math.min(devicePixelRatio||1,MOB?1.5:2);
+var N=MOB?(NC*600):(NC*4000); // exactly NC×PPC
+var PPC=N/NC;
+var DPR=Math.min(devicePixelRatio||1,MOB?1.5:2);
 function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';if(gl)gl.viewport(0,0,cv.width,cv.height);}
 resize();addEventListener('resize',resize);
 var mx=0.5,my=0.5,t=0,frame=0,zoom=1,_lp=0;
@@ -185,41 +200,54 @@ gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);gl.clearColor(0,0,0,1);
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
 var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 var cr=new Float32Array(N),cg=new Float32Array(N),cb=new Float32Array(N);
-var tr=new Float32Array(N),tg=new Float32Array(N),tb=new Float32Array(N);
 var ps=new Float32Array(N),gP=new Float32Array(N*3),gC=new Float32Array(N*3);
 var pB=gl.createBuffer(),cB=gl.createBuffer(),sB=gl.createBuffer();
-for(var i=0;i<N;i++){var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=1+Math.random()*3;px[i]=Math.sin(b)*Math.cos(a)*r;py[i]=Math.sin(b)*Math.sin(a)*r;pz[i]=Math.cos(b)*r;cr[i]=0.6+r*0.1;cg[i]=0.47+r*0.06;cb[i]=0.31+r*0.04;tr[i]=cr[i];tg[i]=cg[i];tb[i]=cb[i];ps[i]=1+Math.random()*2.8;}
+// Initialize particles scattered near their cluster center
+for(var i=0;i<N;i++){var c0=Math.floor(i/PPC),a0=Math.random()*Math.PI*2,b0=Math.random()*Math.PI,r0=Math.random()*0.3;px[i]=CX[c0]+Math.sin(b0)*Math.cos(a0)*r0;py[i]=CY[c0]+Math.sin(b0)*Math.sin(a0)*r0;pz[i]=CZ[c0]+Math.cos(b0)*r0;cr[i]=CR[c0];cg[i]=CG[c0];cb[i]=CB[c0];ps[i]=0.7+Math.random()*2.4;}
 
-var SHAPES=16,shape=0,morphT=1,shapeTime=0,burstT=0,SHAPE_DUR=9;
-var forceShape=-1,pinnedShape=-1;
-var SEED=Math.random();
-var NAMES=['the spiral','helix','torus','wave','orbitals','prime spiral','möbius','lorenz','galaxy','tree','klein','tesseract','supernova','murmuration','heart','black hole'];
-var EQNS=['golden cone · φ','backbone + rungs','(R+r·cos v)cos u','interference','s,p,d shells','√n spiral','half-twist','σ=10 ρ=28 β=8/3','4-arm spiral','fractal branch','self-intersect','4D wireframe','expanding filaments','self-organizing flock','cardioid pulse','R=1 · phase lock'];
-var PAL=[[.92,.64,.30],[.84,.6,.4],[.86,.55,.34],[.55,.74,.55],[.9,.62,.36],[.86,.74,.5],[.82,.5,.5],[.92,.42,.3],[.92,.6,.4],[.55,.76,.45],[.86,.66,.46],[1,.71,.39],[1,.55,.2],[.95,.6,.34],[.95,.22,.32],[.62,.18,.34]];
-var _ip=new Uint8Array(N+2);
-(function(){for(var n=2;n<=N+1;n++){var p=true;if(n<2)p=false;else if(n<4)p=true;else if(n%2===0||n%3===0)p=false;else{for(var j=5;j*j<=n;j+=6){if(n%j===0||n%(j+2)===0){p=false;break;}}}_ip[n]=p?1:0;}})();
+// Precompute cluster + local index for each particle (avoids division in hot loop)
+var pC=new Uint8Array(N),pL=new Int32Array(N);
+for(var i=0;i<N;i++){pC[i]=Math.floor(i/PPC);pL[i]=i-pC[i]*PPC;}
+
+// Prime sieve (for prime spiral shape, sized to PPC)
+var _ip=new Uint8Array(PPC+4);
+(function(){for(var n=2;n<=PPC+2;n++){var p=true;if(n>=4&&n%2===0)p=false;else if(n>=9&&n%3===0)p=false;else{for(var j=5;j*j<=n;j+=6){if(n%j===0||n%(j+2)===0){p=false;break;}}}_ip[n]=p?1:0;}})();
 var lX=new Float32Array(N),lY=new Float32Array(N),lZ=new Float32Array(N);
 (function(){var si=10,ro=28,be=8/3,lx=1,ly=1,lz=1,dt=0.005;for(var s=0;s<2000;s++){lx+=si*(ly-lx)*dt;ly+=(lx*(ro-lz)-ly)*dt;lz+=(lx*ly-be*lz)*dt;}for(var i=0;i<N;i++){lx+=si*(ly-lx)*dt;ly+=(lx*(ro-lz)-ly)*dt;lz+=(lx*ly-be*lz)*dt;lX[i]=lx*0.06;lY[i]=ly*0.06;lZ[i]=(lz-25)*0.06;}})();
 
-function shapeTarget(i,s){
-  var fi=i/N,tx,ty,tz;
+// Per-cluster animation state
+var cShape=new Uint8Array(NC);  // current shape index
+var cMorphT=new Float32Array(NC); // morph progress 0→1
+var cShapeT=new Float32Array(NC); // time spent in current shape
+var cToff=new Float32Array(NC);   // golden-ratio phase offsets
+var cBright=new Float32Array(NC); // brightness multiplier
+var CDUR=5.0; // seconds per shape per cluster
+for(var c=0;c<NC;c++){cShape[c]=CS[c];cMorphT[c]=0.4+Math.random()*0.6;cShapeT[c]=c*(CDUR/NC);cToff[c]=c*0.618*Math.PI*2;cBright[c]=1.0;}
+
+var SC=0.42; // cluster shape scale — compact enough that clusters read as distinct
+var hovC=-1,pinC=-1;
+var SHAPE_NAMES=['spiral','helix','torus','wave','orbitals','prime spiral','möbius','lorenz','galaxy','tree','klein','tesseract','supernova','murmuration','heart','black hole'];
+
+// shapeTarget: cluster-local index iL (0..PPC-1), fraction fi (0..1), shape s, local time tL
+function shapeTarget(iL,fi,s,tL){
+  var tx,ty,tz;
   switch(s){
-    case 0:{var h0=Math.pow(fi,0.7),cR=0.2+h0*1.5,ga=i*2.39996322+t*0.1*(0.5+h0),r0=0.3+((i*7)%100)/100*0.7,gm=1+0.15*Math.sin(ga/1.618+fi*10);tx=Math.cos(ga)*cR*r0*gm;ty=(h0-0.5)*6;tz=Math.sin(ga)*cR*r0*gm;break;}
-    case 1:{var tt=fi*Math.PI*24,st=i%3,gr=1.2+Math.sin(tt*0.3)*0.3;if(st<2){tx=Math.cos(tt+st*Math.PI)*gr;ty=(fi-0.5)*8;tz=Math.sin(tt+st*Math.PI)*gr;}else{var rf=((i*17)%100)/100,ax=Math.cos(tt)*gr,az=Math.sin(tt)*gr,bx=Math.cos(tt+Math.PI)*gr,bz=Math.sin(tt+Math.PI)*gr;tx=ax+(bx-ax)*rf;ty=(fi-0.5)*8;tz=az+(bz-az)*rf;}break;}
+    case 0:{var h0=Math.pow(fi,0.7),cR=0.2+h0*1.5,ga=iL*2.39996322+tL*0.1*(0.5+h0),r0=0.3+((iL*7)%100)/100*0.7,gm=1+0.15*Math.sin(ga/1.618+fi*10);tx=Math.cos(ga)*cR*r0*gm;ty=(h0-0.5)*6;tz=Math.sin(ga)*cR*r0*gm;break;}
+    case 1:{var tt=fi*Math.PI*24,st=iL%3,gr=1.2+Math.sin(tt*0.3)*0.3;if(st<2){tx=Math.cos(tt+st*Math.PI)*gr;ty=(fi-0.5)*8;tz=Math.sin(tt+st*Math.PI)*gr;}else{var rf=((iL*17)%100)/100,ax=Math.cos(tt)*gr,az=Math.sin(tt)*gr,bx=Math.cos(tt+Math.PI)*gr,bz=Math.sin(tt+Math.PI)*gr;tx=ax+(bx-ax)*rf;ty=(fi-0.5)*8;tz=az+(bz-az)*rf;}break;}
     case 2:{var u=fi*Math.PI*2*30,v=fi*Math.PI*2,R=2.5,rr=0.7+Math.sin(u*3)*0.15,vB=v+Math.sin(u*5)*0.2;tx=(R+rr*Math.cos(vB))*Math.cos(u);ty=rr*Math.sin(vB);tz=(R+rr*Math.cos(vB))*Math.sin(u);break;}
-    case 3:{var wx=(i%316)/316*8-4,wz=Math.floor(i/316)/316*8-4,d1=Math.sqrt((wx-1.5)*(wx-1.5)+wz*wz),d2=Math.sqrt((wx+1.5)*(wx+1.5)+wz*wz);tx=wx;ty=(Math.sin(d1*3-t*4.1)+Math.sin(d2*3-t*4.1))*0.8;tz=wz;break;}
-    case 4:{var shell=i%4,ai=fi*Math.PI*2*30+t*0.2*(shell+1);if(shell===0){var br=fi*Math.PI;tx=Math.sin(br)*Math.cos(ai)*0.8;ty=Math.sin(br)*Math.sin(ai)*0.8;tz=Math.cos(br)*0.8;}else if(shell===1){var pa=Math.sin(fi*Math.PI)*2.5;tx=pa*Math.cos(ai*0.3);ty=Math.cos(fi*Math.PI*3)*0.3;tz=pa*Math.sin(ai*0.3);}else if(shell===2){var pb=Math.sin(fi*Math.PI)*2.5;tx=Math.cos(fi*Math.PI*3)*0.3;ty=pb*Math.cos(ai*0.3);tz=pb*Math.sin(ai*0.3);}else{var da=fi*Math.PI*2*8,dr=1.8+Math.sin(da*2)*0.8;tx=Math.cos(da)*dr*Math.cos(ai*0.15);ty=Math.sin(da*2)*0.6;tz=Math.sin(da)*dr*Math.cos(ai*0.15);}break;}
-    case 5:{var n=i+1,a2=Math.sqrt(n)*2.5,rd=Math.sqrt(n)*0.025;tx=Math.cos(a2)*rd;ty=Math.sin(a2)*rd;tz=(_ip[n]?0.3:-0.15)*Math.sin(n*0.01+t*0.5);break;}
-    case 6:{var mu=fi*Math.PI*2,mv=(i%50)/50-0.5,ht=mu/2,mR=2.5;tx=(mR+mv*Math.cos(ht))*Math.cos(mu);ty=(mR+mv*Math.cos(ht))*Math.sin(mu);tz=mv*Math.sin(ht);break;}
-    case 7:{tx=lX[i]*2.4;ty=lY[i]*2.4;tz=lZ[i]*2.4;break;}
-    case 8:{var arm=i%4,r8=Math.pow(fi,0.5)*5,aA=r8*0.8+arm*Math.PI/2+t*0.03,sp=0.15+r8*0.08,aO=(((i*7)%100)/100-0.5)*sp;tx=Math.cos(aA+aO)*r8;var gZ=Math.sin(aA+aO)*r8,dH=0.05+0.3/(r8+0.5),gY=((i*13%100)/100-0.5)*dH;ty=gY*0.22-gZ*0.97;tz=gY*0.97+gZ*0.22;break;}
-    case 9:{var dep=Math.floor(fi*6),bra=i%(1<<dep),a3=bra/(1<<dep)*Math.PI*2+dep*0.618*Math.PI*2,tR=dep*0.5+0.5,tY=-3+dep*1.2;tx=Math.cos(a3)*tR*(1+Math.sin(t*0.3+dep)*0.1);ty=tY;tz=Math.sin(a3)*tR*(1+Math.cos(t*0.3+dep)*0.1);break;}
-    case 10:{var ku=fi*Math.PI*2,kv=(i%80)/80*Math.PI*2,kr=2;if(ku<Math.PI){tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*(1-Math.cos(ku)/2)*Math.cos(ku)*Math.cos(kv);ty=-8*Math.sin(ku)-kr*Math.sin(ku)*Math.cos(kv)*(1-Math.cos(ku)/2);}else{tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*Math.cos(kv+Math.PI);ty=-8*Math.sin(ku);}tz=kr*Math.sin(kv);tx*=0.15;ty*=0.15;tz*=0.5;break;}
-    case 11:{var e4=i%32,ef=(i%3125)/3125,v1=e4,v2=e4^(1<<(e4%4)),ax4=(v1&1)?1:-1,ay4=(v1&2)?1:-1,az4=(v1&4)?1:-1,aw4=(v1&8)?1:-1,bx4=(v2&1)?1:-1,by4=(v2&2)?1:-1,bz4=(v2&4)?1:-1,bw4=(v2&8)?1:-1;var ex=ax4+(bx4-ax4)*ef,ey=ay4+(by4-ay4)*ef,ez=az4+(bz4-az4)*ef,ew=aw4+(bw4-aw4)*ef,r4=t*0.3,c4=Math.cos(r4),s4=Math.sin(r4),rx4=ex*c4-ew*s4,rw4=ex*s4+ew*c4,p4=2.5/(2.5+rw4*0.4);tx=rx4*p4*1.8;ty=ey*p4*1.8;tz=ez*p4*1.8;break;}
-    case 12:{var snA=fi*Math.PI*2*80,snR=1+Math.pow(fi,0.4)*4,fil=Math.sin(snA*3+fi*20)*0.5,snT=Math.acos(1-2*((i*7)%N)/N);tx=Math.sin(snT)*Math.cos(snA)*(snR+fil);ty=Math.sin(snT)*Math.sin(snA)*(snR+fil)*0.8;tz=Math.cos(snT)*(snR+fil);if(fi<0.1){var c2=fi*10;tx*=c2*0.3;ty*=c2*0.3;tz*=c2*0.3;}break;}
-    case 13:{var mA=fi*Math.PI*2*5+t*0.5,mRd=2+Math.sin(fi*30+t*0.8)*1.5,mW=Math.sin(mA*2+t*1.5)*Math.cos(fi*40+t)*0.8;tx=Math.cos(mA)*mRd+Math.sin(t*0.3+fi*10)*0.5;ty=mW+Math.sin(fi*20+t*0.7)*0.5;tz=Math.sin(mA)*mRd+Math.cos(t*0.4+fi*8)*0.5;break;}
-    case 14:{var hU=fi*Math.PI*2,hV=Math.acos(1-2*((i*3)%N)/N),hR=1.5*(1-Math.cos(hU));tx=hR*Math.sin(hV)*Math.cos(hU)*1.2;ty=-hR*Math.cos(hV)*1.5+1;tz=hR*Math.sin(hV)*Math.sin(hU)*1.2;break;}
-    case 15:{if(fi<0.05){var bhA=fi*20*Math.PI*2,bhB=Math.acos(1-2*fi*20);tx=Math.sin(bhB)*Math.cos(bhA)*0.4;ty=Math.sin(bhB)*Math.sin(bhA)*0.4;tz=Math.cos(bhB)*0.4;}else if(fi<0.15){var jH=(fi-0.05)*40-2,jR=0.1+Math.abs(jH)*0.05,jA=i*2.399;tx=Math.cos(jA)*jR;ty=jH;tz=Math.sin(jA)*jR;}else{var dA=fi*Math.PI*2*15+t*0.3,dR=0.8+Math.pow(fi-0.15,0.5)*4,wp=Math.sin(dA*2+t)*0.15*dR;tx=Math.cos(dA)*dR;ty=wp;tz=Math.sin(dA)*dR;}break;}
+    case 3:{var wx=(iL%316)/316*8-4,wz=Math.floor(iL/316)/316*8-4,d1=Math.sqrt((wx-1.5)*(wx-1.5)+wz*wz),d2=Math.sqrt((wx+1.5)*(wx+1.5)+wz*wz);tx=wx;ty=(Math.sin(d1*3-tL*4.1)+Math.sin(d2*3-tL*4.1))*0.8;tz=wz;break;}
+    case 4:{var shell=iL%4,ai=fi*Math.PI*2*30+tL*0.2*(shell+1);if(shell===0){var br=fi*Math.PI;tx=Math.sin(br)*Math.cos(ai)*0.8;ty=Math.sin(br)*Math.sin(ai)*0.8;tz=Math.cos(br)*0.8;}else if(shell===1){var pa=Math.sin(fi*Math.PI)*2.5;tx=pa*Math.cos(ai*0.3);ty=Math.cos(fi*Math.PI*3)*0.3;tz=pa*Math.sin(ai*0.3);}else if(shell===2){var pb=Math.sin(fi*Math.PI)*2.5;tx=Math.cos(fi*Math.PI*3)*0.3;ty=pb*Math.cos(ai*0.3);tz=pb*Math.sin(ai*0.3);}else{var da=fi*Math.PI*2*8,dr=1.8+Math.sin(da*2)*0.8;tx=Math.cos(da)*dr*Math.cos(ai*0.15);ty=Math.sin(da*2)*0.6;tz=Math.sin(da)*dr*Math.cos(ai*0.15);}break;}
+    case 5:{var n5=iL+1,a2=Math.sqrt(n5)*2.5,rd=Math.sqrt(n5)*0.025;tx=Math.cos(a2)*rd;ty=Math.sin(a2)*rd;tz=(_ip[n5]?0.3:-0.15)*Math.sin(n5*0.01+tL*0.5);break;}
+    case 6:{var mu=fi*Math.PI*2,mv=(iL%50)/50-0.5,ht=mu/2,mR=2.5;tx=(mR+mv*Math.cos(ht))*Math.cos(mu);ty=(mR+mv*Math.cos(ht))*Math.sin(mu);tz=mv*Math.sin(ht);break;}
+    case 7:{tx=lX[iL]*2.4;ty=lY[iL]*2.4;tz=lZ[iL]*2.4;break;}
+    case 8:{var arm=iL%4,r8=Math.pow(fi,0.5)*5,aA=r8*0.8+arm*Math.PI/2+tL*0.03,sp=0.15+r8*0.08,aO=(((iL*7)%100)/100-0.5)*sp;tx=Math.cos(aA+aO)*r8;var gZ=Math.sin(aA+aO)*r8,dH=0.05+0.3/(r8+0.5),gY=((iL*13%100)/100-0.5)*dH;ty=gY*0.22-gZ*0.97;tz=gY*0.97+gZ*0.22;break;}
+    case 9:{var dep=Math.floor(fi*6),bra=iL%(1<<dep),a3=bra/(1<<dep)*Math.PI*2+dep*0.618*Math.PI*2,tR=dep*0.5+0.5,tY=-3+dep*1.2;tx=Math.cos(a3)*tR*(1+Math.sin(tL*0.3+dep)*0.1);ty=tY;tz=Math.sin(a3)*tR*(1+Math.cos(tL*0.3+dep)*0.1);break;}
+    case 10:{var ku=fi*Math.PI*2,kv=(iL%80)/80*Math.PI*2,kr=2;if(ku<Math.PI){tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*(1-Math.cos(ku)/2)*Math.cos(ku)*Math.cos(kv);ty=-8*Math.sin(ku)-kr*Math.sin(ku)*Math.cos(kv)*(1-Math.cos(ku)/2);}else{tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*Math.cos(kv+Math.PI);ty=-8*Math.sin(ku);}tz=kr*Math.sin(kv);tx*=0.15;ty*=0.15;tz*=0.5;break;}
+    case 11:{var e4=iL%32,ef=(iL%3125)/3125,v1=e4,v2=e4^(1<<(e4%4)),ax4=(v1&1)?1:-1,ay4=(v1&2)?1:-1,az4=(v1&4)?1:-1,aw4=(v1&8)?1:-1,bx4=(v2&1)?1:-1,by4=(v2&2)?1:-1,bz4=(v2&4)?1:-1,bw4=(v2&8)?1:-1;var ex=ax4+(bx4-ax4)*ef,ey=ay4+(by4-ay4)*ef,ez=az4+(bz4-az4)*ef,ew=aw4+(bw4-aw4)*ef,r4=tL*0.3,c4=Math.cos(r4),s4=Math.sin(r4),rx4=ex*c4-ew*s4,rw4=ex*s4+ew*c4,p4=2.5/(2.5+rw4*0.4);tx=rx4*p4*1.8;ty=ey*p4*1.8;tz=ez*p4*1.8;break;}
+    case 12:{var snA=fi*Math.PI*2*80,snR=1+Math.pow(fi,0.4)*4,fil=Math.sin(snA*3+fi*20)*0.5,snT=Math.acos(1-2*((iL*7)%PPC)/PPC);tx=Math.sin(snT)*Math.cos(snA)*(snR+fil);ty=Math.sin(snT)*Math.sin(snA)*(snR+fil)*0.8;tz=Math.cos(snT)*(snR+fil);if(fi<0.1){var c2=fi*10;tx*=c2*0.3;ty*=c2*0.3;tz*=c2*0.3;}break;}
+    case 13:{var mA=fi*Math.PI*2*5+tL*0.5,mRd=2+Math.sin(fi*30+tL*0.8)*1.5,mW=Math.sin(mA*2+tL*1.5)*Math.cos(fi*40+tL)*0.8;tx=Math.cos(mA)*mRd+Math.sin(tL*0.3+fi*10)*0.5;ty=mW+Math.sin(fi*20+tL*0.7)*0.5;tz=Math.sin(mA)*mRd+Math.cos(tL*0.4+fi*8)*0.5;break;}
+    case 14:{var hU=fi*Math.PI*2,hV=Math.acos(1-2*((iL*3)%PPC)/PPC),hR=1.5*(1-Math.cos(hU));tx=hR*Math.sin(hV)*Math.cos(hU)*1.2;ty=-hR*Math.cos(hV)*1.5+1;tz=hR*Math.sin(hV)*Math.sin(hU)*1.2;break;}
+    case 15:{if(fi<0.05){var bhA=fi*20*Math.PI*2,bhB=Math.acos(1-2*fi*20);tx=Math.sin(bhB)*Math.cos(bhA)*0.4;ty=Math.sin(bhB)*Math.sin(bhA)*0.4;tz=Math.cos(bhB)*0.4;}else if(fi<0.15){var jH=(fi-0.05)*40-2,jR=0.1+Math.abs(jH)*0.05,jA=iL*2.399;tx=Math.cos(jA)*jR;ty=jH;tz=Math.sin(jA)*jR;}else{var dA=fi*Math.PI*2*15+tL*0.3,dR=0.8+Math.pow(fi-0.15,0.5)*4,wp=Math.sin(dA*2+tL)*0.15*dR;tx=Math.cos(dA)*dR;ty=wp;tz=Math.sin(dA)*dR;}break;}
     default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
@@ -234,48 +262,51 @@ function mM(a,b){var r=new Float32Array(16);for(var i=0;i<4;i++)for(var j=0;j<4;
 
 var _acc=0,_lms=performance.now();
 function update(){var now=performance.now(),dt=(now-_lms)/1000;_lms=now;if(dt>0.1)dt=0.1;_acc+=dt;var steps=0;while(_acc>=0.016&&steps<5){step();_acc-=0.016;steps++;}}
-function recolor(sh){
-  var pal=PAL[sh];
-  for(var i=0;i<N;i++){
-    var fi=i/N,v=0.7+fi*0.6;
-    if(sh===0){var h0=Math.pow(fi,0.7);if(h0<0.15){tr[i]=0.08+h0;tg[i]=0.03+h0*0.3;tb[i]=0.2+h0;}else if(h0<0.35){var t2=(h0-0.15)/0.2;tr[i]=0.1+t2*0.1;tg[i]=0.25+t2*0.2;tb[i]=0.45-t2*0.1;}else if(h0<0.6){var t2=(h0-0.35)/0.25;tr[i]=0.2+t2*0.6;tg[i]=0.45+t2*0.2;tb[i]=0.35-t2*0.1;}else{var t2=(h0-0.6)/0.4;tr[i]=0.78+t2*0.2;tg[i]=0.64+t2*0.3;tb[i]=0.25+t2*0.6;}}
-    else{tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);}
-    if(sh===5&&_ip[i+1]){tr[i]=0.86;tg[i]=0.76;tb[i]=0.39;}
-    if(sh===5&&!_ip[i+1]){tr[i]=0.23;tg[i]=0.2;tb[i]=0.16;}
-  }
-}
-function burst(){burstT=0.5;for(var i=0;i<N;i++){var dist=Math.sqrt(px[i]*px[i]+py[i]*py[i]+pz[i]*pz[i])+0.01;vx[i]+=(px[i]/dist)*0.1;vy[i]+=(py[i]/dist)*0.1;vz[i]+=(pz[i]/dist)*0.1;}}
+
 function step(){
-  t+=0.016;shapeTime+=0.016;if(burstT>0)burstT-=0.016;
-  var ws=forceShape;
-  if((ws>=0&&ws!==shape)||(ws<0&&shapeTime>SHAPE_DUR)){
-    burst();shape=ws>=0?ws:(shape+1)%SHAPES;morphT=0;shapeTime=0;
-    recolor(shape);
-    var w=document.getElementById('whisper');if(w)w.textContent=NAMES[shape]+' — '+EQNS[shape];
+  t+=0.016;
+  var anyHov=(hovC>=0||pinC>=0);
+  // Update each cluster's morph state independently
+  for(var c=0;c<NC;c++){
+    cShapeT[c]+=0.016;
+    if(cShapeT[c]>CDUR){
+      cShapeT[c]=0;cMorphT[c]=0;
+      // cycle to an adjacent shape (not random, so it settles into a recognizable rhythm)
+      cShape[c]=(cShape[c]+3)%16;
+    }
+    if(cMorphT[c]<1)cMorphT[c]=Math.min(1,cMorphT[c]+0.016*0.85);
+    // brightness: hovered cluster glows, others dim when something is hovered
+    var btgt=(c===hovC||c===pinC)?1.55:anyHov?0.45:1.0;
+    cBright[c]+=(btgt-cBright[c])*0.07;
   }
-  if(morphT<1)morphT=Math.min(1,morphT+0.016*0.55);
-  var k=burstT>0?0.003:morphT<1?0.008+morphT*0.015:0.028,damp=burstT>0?0.97:morphT<1?0.92:0.95;
+  // Update all particles
   for(var i=0;i<N;i++){
-    var tgt=shapeTarget(i,shape);
-    vx[i]+=(tgt[0]-px[i])*k;vy[i]+=(tgt[1]-py[i])*k;vz[i]+=(tgt[2]-pz[i])*k;
-    vx[i]*=damp;vy[i]*=damp;vz[i]*=damp;
+    var c=pC[i],iL=pL[i],fi=iL/PPC;
+    var tL=t+cToff[c];
+    var tgt=shapeTarget(iL,fi,cShape[c],tL);
+    var sx=tgt[0]*SC+CX[c],sy=tgt[1]*SC+CY[c],sz=tgt[2]*SC+CZ[c];
+    var kk=cMorphT[c]<1?0.007:0.024,dmp=0.93;
+    vx[i]+=(sx-px[i])*kk;vy[i]+=(sy-py[i])*kk;vz[i]+=(sz-pz[i])*kk;
+    vx[i]*=dmp;vy[i]*=dmp;vz[i]*=dmp;
     px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
-    cr[i]+=(tr[i]-cr[i])*0.025;cg[i]+=(tg[i]-cg[i])*0.025;cb[i]+=(tb[i]-cb[i])*0.025;
+    var b=cBright[c];
+    cr[i]+=(CR[c]*b-cr[i])*0.04;cg[i]+=(CG[c]*b-cg[i])*0.04;cb[i]+=(CB[c]*b-cb[i])*0.04;
   }
 }
+
 function render(){
   frame++;update();
   var w=innerWidth,h=innerHeight,camD=3-zoom*0.12,asp=w/h;
   var proj=mp(1.0,asp,0.1,100),view=mI();
   view=mT(view,0,0,-camD*4);
-  view=mRX(view,(my-0.5)*1.4);
-  view=mRY(view,t*0.14+(mx-0.5)*1.9+SEED*6.2832);
+  view=mRX(view,(my-0.5)*1.2);
+  view=mRY(view,t*0.04+(mx-0.5)*1.6);
   var mvp=mM(proj,view);
   for(var i=0;i<N;i++){gP[i*3]=px[i];gP[i*3+1]=py[i];gP[i*3+2]=pz[i];gC[i*3]=cr[i];gC[i*3+1]=cg[i];gC[i*3+2]=cb[i];}
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.uniformMatrix4fv(UM,false,mvp);
-  gl.uniform1f(USC,Math.min(w,h)*DPR*(MOB?0.062:0.03));
-  gl.uniform1f(UB,MOB?0.52:0.34);
+  gl.uniform1f(USC,Math.min(w,h)*DPR*(MOB?0.072:0.036));
+  gl.uniform1f(UB,MOB?0.62:0.38);
   gl.bindBuffer(gl.ARRAY_BUFFER,pB);gl.bufferData(gl.ARRAY_BUFFER,gP,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(AP);gl.vertexAttribPointer(AP,3,gl.FLOAT,false,0,0);
   gl.bindBuffer(gl.ARRAY_BUFFER,cB);gl.bufferData(gl.ARRAY_BUFFER,gC,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(AC);gl.vertexAttribPointer(AC,3,gl.FLOAT,false,0,0);
   gl.bindBuffer(gl.ARRAY_BUFFER,sB);gl.bufferData(gl.ARRAY_BUFFER,ps,gl.STATIC_DRAW);gl.enableVertexAttribArray(AS_);gl.vertexAttribPointer(AS_,1,gl.FLOAT,false,0,0);
@@ -287,18 +318,20 @@ render();
 // ═══ Interaction ═══
 var bubble=document.getElementById('bubble'),btitle=document.getElementById('btitle'),bsub=document.getElementById('bsub'),blinks=document.getElementById('blinks'),broom=document.getElementById('broom');
 var openId=null;
+// Map SP id → cluster index (same order as SP array)
+var SP_CI={};SP.forEach(function(s,i){SP_CI[s.id]=i;});
 
-function setWhisper(sh){var w=document.getElementById('whisper');if(w)w.textContent=NAMES[sh]+' — '+EQNS[sh];}
-function openPanel(s){
+function setWhisper(cIdx){var w=document.getElementById('whisper');if(w&&cIdx>=0)w.textContent=SP[cIdx].title+' · '+SHAPE_NAMES[cShape[cIdx]];}
+function openPanel(s,cIdx){
   var cv2=col(s.c);bubble.style.setProperty('--bc',cv2['--bc']);bubble.style.setProperty('--bg',cv2['--bg']);
   broom.textContent=s.room;btitle.textContent=s.title;bsub.textContent=s.sub;
   blinks.innerHTML='';
   s.links.forEach(function(l){var a=document.createElement('a');a.href=l[1];a.textContent=l[0];if(l[2])a.className='gated';blinks.appendChild(a);});
   blinks.scrollTop=0;bubble.classList.add('on');
-  openId=s.id;pinnedShape=SP_SHAPE[s.id]>=0?SP_SHAPE[s.id]:-1;forceShape=pinnedShape;
+  openId=s.id;pinC=cIdx;
 }
 function closePanel(){
-  bubble.classList.remove('on');openId=null;pinnedShape=-1;forceShape=-1;shapeTime=0;
+  bubble.classList.remove('on');openId=null;pinC=-1;
   document.querySelectorAll('.node.active').forEach(function(n){n.classList.remove('active');});
 }
 document.getElementById('bclose').addEventListener('click',function(e){e.stopPropagation();closePanel();});
@@ -307,17 +340,17 @@ document.addEventListener('click',function(e){if(!bubble.contains(e.target)&&!e.
 bubble.addEventListener('click',function(e){e.stopPropagation();});
 
 document.querySelectorAll('.node').forEach(function(btn){
-  var id=btn.dataset.id,sid=SP_SHAPE[id];
+  var id=btn.dataset.id,cIdx=SP_CI[id];
   btn.addEventListener('mouseenter',function(){
-    if(sid!==undefined){forceShape=sid;setWhisper(sid);}
-    document.querySelectorAll('.node:not(.active)').forEach(function(n){n.style.opacity='0.5';});
+    hovC=cIdx>=0?cIdx:-1;
+    setWhisper(cIdx);
+    document.querySelectorAll('.node:not(.active)').forEach(function(n){n.style.opacity='0.4';});
     btn.style.opacity='1';
   });
   btn.addEventListener('mouseleave',function(){
+    hovC=-1;
     document.querySelectorAll('.node').forEach(function(n){n.style.opacity='';});
-    forceShape=pinnedShape;
-    if(pinnedShape<0){shapeTime=0;}
-    else setWhisper(pinnedShape);
+    if(pinC>=0)setWhisper(pinC);else{var w=document.getElementById('whisper');if(w)w.textContent='';}
   });
   btn.addEventListener('click',function(e){
     e.stopPropagation();
@@ -326,14 +359,12 @@ document.querySelectorAll('.node').forEach(function(btn){
     if(openId)closePanel();
     document.querySelectorAll('.node.active').forEach(function(n){n.classList.remove('active');});
     btn.classList.add('active');
-    openPanel(s);
+    openPanel(s,cIdx>=0?cIdx:0);
   });
   btn.addEventListener('touchstart',function(e){
-    if(sid!==undefined){forceShape=sid;setWhisper(sid);}
+    hovC=cIdx>=0?cIdx:-1;setWhisper(cIdx);
   },{passive:true});
 });
-
-setWhisper(shape);
 })();
 </script>
 </body>
