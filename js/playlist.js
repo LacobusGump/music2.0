@@ -100,8 +100,10 @@ window.RADIO=(function(){
   function lyricsFor(p){ return LYRICS[(p.f||'').split('/').pop().replace(/\.[^.]+$/,'')] || null; }
 
   // ── GUMP ON THE RACKS — separate from the album, no columns, just the groove ──
-  var B='/v5/beats/';
+  var B='/v5/beats/', J2='/v5/james/';
   var BEATS=[
+    {t:"Feel It",s:"the kit, live",f:J2+"feel_it.mp3"},
+    {t:"Paast That",s:"the kit, live",f:B+"paast_that.mp3"},
     {t:"Get In Here",s:"jazz orchestra · glitch",f:B+"get_in_here.mp3"},
     {t:"Get In There",s:"jazz orchestra · glitch v2",f:B+"get_in_there.mp3"},
     {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
