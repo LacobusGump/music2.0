@@ -39,6 +39,12 @@ document.addEventListener('click',function(e){
   if(!audio||audio.tagName!=='AUDIO')return;
   e.stopImmediatePropagation(); // block onG click listener
   e.stopPropagation();           // block button's inline onclick
+  // If the page has the top radio, the song routes INTO it — one player, one source of
+  // truth. The radio takes over this button's glyph. Falls back to inline play if no radio.
+  if(window.gumpRadio){
+    window.gumpRadio.toggle(audio.currentSrc||audio.src);
+    return;
+  }
   if(audio.paused){
     audio.play()
       .then(function(){btn.textContent=PA;})

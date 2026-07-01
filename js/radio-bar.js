@@ -68,12 +68,47 @@
       titleEl.textContent = PLAY[idx].t;
       if (PLAY[idx].url){ titleEl.href = PLAY[idx].url; titleEl.title = 'go study where this one came from'; } // like it? click through and read
       else { titleEl.removeAttribute('href'); titleEl.removeAttribute('title'); } // a ghost ship has no port
+      refreshInline();
     }
-    function onPlay(){ wantPlay = true; playBtn.textContent = '❚❚'; bar.classList.add('on'); bar.classList.remove('cued'); save(); }
-    function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); }
+
+    // ── the inline song boxes on a page are triggers, not players. they route their
+    // song INTO this bar (one audio element, one source of truth) and light up when it's live. ──
+    function stemOf(s){ return ('' + (s || '')).split('/').pop().replace(/\?.*$/, ''); }
+    function curStem(){ return stemOf(a.currentSrc || a.src); }
+    function refreshInline(){
+      var cs = curStem(), auds = document.getElementsByTagName('audio');
+      for (var i = 0; i < auds.length; i++){
+        var el = auds[i]; if (el === a || !el.id) continue;
+        var btn = document.getElementById(el.id + '-btn'); if (!btn) continue;
+        var live = stemOf(el.src) === cs;
+        btn.textContent = (live && !a.paused) ? '▌▌' : '▶';   // glyphs audio.js recognises
+        if (el.parentNode && el.parentNode.style){            // "unlock" glow on the active box
+          el.parentNode.style.borderColor = live ? 'rgba(201,164,74,0.45)' : 'rgba(184,117,58,0.12)';
+        }
+      }
+    }
+    function onPlay(){ wantPlay = true; playBtn.textContent = '❚❚'; bar.classList.add('on'); bar.classList.remove('cued'); save(); refreshInline(); }
+    function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); refreshInline(); }
     function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused, manual: manual })); } catch(e){} }
     function pauseOthers(){ var all = document.getElementsByTagName('audio'); for (var i = 0; i < all.length; i++){ if (all[i] !== a && !all[i].paused) all[i].pause(); } }
     function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(function(err){ if (err && err.name === 'AbortError') return; armGesture(); }); } // ignore benign aborts from rapid skips
+
+    // public: an inline song box hands its track to the bar. matches the album by filename
+    // so it joins the stream (progress + carry) when it's an album track; otherwise plays it as a one-off.
+    window.gumpRadio = {
+      isLive: function(src){ return stemOf(src) === curStem() && !a.paused; },
+      pageTitle: function(){ return (PLAY[pageIdx] && PLAY[pageIdx].t) || 'the song'; },
+      playPageSong: function(){ manual = true; setTrack(pageIdx); play(); }, // this page IS a track on the album — play it
+      toggle: function(src, title, url){
+        if (stemOf(src) === curStem() && !a.paused){ a.pause(); wantPlay = false; onPause(); return; } // second click on the live song = pause
+        manual = true; // they picked a song on purpose — no page-cue may override the stream now
+        var stem = stemOf(src), found = -1;
+        for (var i = 0; i < PLAY.length; i++){ if (stemOf(PLAY[i].f) === stem){ found = i; break; } }
+        if (found >= 0){ setTrack(found); }
+        else { a.src = src; titleEl.textContent = title || stem; if (url){ titleEl.href = url; } else { titleEl.removeAttribute('href'); titleEl.removeAttribute('title'); } refreshInline(); }
+        play();
+      }
+    };
 
     // if the browser blocks autoplay on a fresh page, resume the moment the visitor touches anything
     var armed = false;
@@ -111,6 +146,45 @@
     document.addEventListener('play', function(e){ if (e.target && e.target.tagName === 'AUDIO' && e.target !== a && !a.paused) a.pause(); }, true);
     // and yield to a page reading itself aloud — never play music over the spoken word
     try { var sp = window.speechSynthesis; if (sp && sp.speak) { var _speak = sp.speak.bind(sp); sp.speak = function(u){ if (!a.paused) a.pause(); return _speak(u); }; } } catch(e){}
+
+    // ── The Egg: a reading reward. Drop the literal text "(egg)" anywhere deep in a page.
+    // Whoever hunts it down clicks it — this page's song unlocks in the radio, and the egg
+    // becomes a door to the whole album. No one reads walls of text; but they'll chase an
+    // egg, and the chase IS the read. One trigger, one radio — nothing to fall out of sync. ──
+    (function wireEgg(){
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), hits = [], n;
+      while ((n = walker.nextNode())){
+        if (n.parentNode && n.parentNode.closest && n.parentNode.closest('a,script,style,button,.gump-radio,.gr-egg')) continue;
+        if (n.nodeValue && n.nodeValue.indexOf('(egg)') >= 0) hits.push(n);
+      }
+      if (!hits.length) return;
+      hits.forEach(function(node){
+        var parts = node.nodeValue.split('(egg)'), frag = document.createDocumentFragment();
+        for (var i = 0; i < parts.length; i++){
+          if (parts[i]) frag.appendChild(document.createTextNode(parts[i]));
+          if (i < parts.length - 1){
+            var egg = document.createElement('span');
+            egg.className = 'gr-egg'; egg.textContent = '(egg)'; egg.setAttribute('role', 'button'); egg.title = 'hm?';
+            frag.appendChild(egg);
+          }
+        }
+        node.parentNode.replaceChild(frag, node);
+      });
+      var s = document.createElement('style');
+      s.textContent =
+        ".gr-egg{color:rgba(201,164,74,0.5);border-bottom:1px dashed rgba(201,164,74,0.35);cursor:pointer;transition:color .2s;white-space:nowrap;}" +
+        ".gr-egg:hover{color:#e8cfa0;border-bottom-color:rgba(201,164,74,0.7);}" +
+        ".gr-egg.cracked{color:#c9a44a;border:none;cursor:default;}" +
+        ".gr-egg.cracked a{color:#e8cfa0;text-decoration:underline;text-underline-offset:3px;}";
+      document.head.appendChild(s);
+      document.addEventListener('click', function(e){
+        var egg = e.target && e.target.closest && e.target.closest('.gr-egg');
+        if (!egg || egg.classList.contains('cracked')) return;
+        egg.classList.add('cracked');
+        window.gumpRadio.playPageSong();
+        egg.innerHTML = '♪ ' + window.gumpRadio.pageTitle() + ' — <a href="/radio/">hear the whole album →</a>';
+      }, false);
+    })();
 
     // carry the stream across the page change — resume now if allowed, otherwise on first touch
     if (wantPlay){ play(); } else { onPause(); }
