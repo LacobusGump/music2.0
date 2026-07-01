@@ -7,7 +7,7 @@
    double-play race condition on mobile. */
 (function(){
 'use strict';
-var PL='▶',PA='▌▌';
+var PL='▶',PA='▐▐'; // must match the pause glyph every embedded button actually uses (see CLAUDE.md pattern)
 
 function findBtn(t){
   while(t&&t!==document){

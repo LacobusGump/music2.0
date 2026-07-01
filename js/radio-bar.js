@@ -81,7 +81,7 @@
         var el = auds[i]; if (el === a || !el.id) continue;
         var btn = document.getElementById(el.id + '-btn'); if (!btn) continue;
         var live = stemOf(el.src) === cs;
-        btn.textContent = (live && !a.paused) ? '▌▌' : '▶';   // glyphs audio.js recognises
+        btn.textContent = (live && !a.paused) ? '▐▐' : '▶';   // glyphs audio.js recognises
         if (el.parentNode && el.parentNode.style){            // "unlock" glow on the active box
           el.parentNode.style.borderColor = live ? 'rgba(201,164,74,0.45)' : 'rgba(184,117,58,0.12)';
         }
