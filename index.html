@@ -17,25 +17,19 @@ body{
 }
 .fut{font-family:Futura,"Century Gothic",sans-serif;letter-spacing:.18em;text-transform:uppercase}
 
+#wingCanvas{position:fixed;inset:0;z-index:0;display:block}
+
 .head{position:fixed;top:0;left:0;right:0;z-index:5;text-align:center;padding:26px 16px;pointer-events:none}
 .head .k{font-size:12px;color:var(--muted)}
 .head .ask{margin-top:7px;font-size:clamp(20px,3vw,30px);font-weight:400}
 .head .ask em{font-style:italic;color:#f3dcae}
 
-.wings{display:flex;height:100%;position:relative}
+.wings{display:flex;height:100%;position:relative;z-index:2}
 .wing{
   position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   text-decoration:none;color:inherit;overflow:hidden;cursor:pointer;
-  transition:flex .6s cubic-bezier(.2,.7,.2,1);
 }
-.wing:before{content:"";position:absolute;inset:0;transition:opacity .6s ease;opacity:.85}
-.wing.music:before{background:radial-gradient(120% 90% at 8% 50%,rgba(238,176,92,.30),rgba(238,176,92,.05) 46%,transparent 66%)}
-.wing.ideas:before{background:radial-gradient(120% 90% at 92% 50%,rgba(150,142,224,.30),rgba(150,142,224,.05) 46%,transparent 66%)}
-.wing:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.16));pointer-events:none}
-
-.wings:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;transform:translateX(-.5px);
-  background:linear-gradient(180deg,transparent,rgba(243,220,174,.5) 30%,rgba(243,220,174,.5) 70%,transparent);
-  box-shadow:0 0 24px rgba(243,220,174,.22);z-index:2;pointer-events:none;transition:opacity .5s}
+.wing:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.10));pointer-events:none}
 
 .c{position:relative;z-index:1;text-align:center;padding:0 22px;transform:translateY(6px);transition:transform .5s ease}
 .lbl{font-size:clamp(20px,2.6vw,30px)}
@@ -47,39 +41,38 @@ body{
 .wing.ideas .arrow{color:#c8c2ec}
 
 @media(hover:hover) and (min-width:721px){
-  .wing:hover{flex:1.32}
-  .wing:hover:before{opacity:1}
   .wing:hover .c{transform:translateY(0)}
   .wing:hover .arrow{opacity:1;transform:translateX(3px)}
-  .wings:hover:after{opacity:.4}
 }
 
 .foot{position:fixed;bottom:0;left:0;right:0;z-index:5;text-align:center;padding:20px;font-size:11px;color:rgba(243,238,228,.4);pointer-events:none}
+.readout{position:fixed;bottom:20px;right:20px;z-index:5;font-size:10px;letter-spacing:.1em;color:rgba(243,238,228,.22);pointer-events:none}
 
 @media(max-width:720px){
   body{overflow:auto}
   .wings{flex-direction:column;height:auto;min-height:100%}
   .wing{min-height:48vh;padding:80px 22px}
-  .wings:after{left:0;right:0;top:50%;bottom:auto;width:auto;height:1px;transform:translateY(-.5px);
-    background:linear-gradient(90deg,transparent,rgba(243,220,174,.5) 30%,rgba(243,220,174,.5) 70%,transparent)}
+  .readout{display:none}
 }
 </style>
 </head>
 <body>
+<canvas id="wingCanvas"></canvas>
+
 <div class="head">
   <div class="k fut">begump</div>
   <div class="ask">why did you <em>come?</em></div>
 </div>
 
 <div class="wings">
-  <a class="wing music" href="/field/">
+  <a class="wing music" href="/field/" id="wingMusic">
     <div class="c">
       <div class="lbl fut">for the music</div>
       <div class="sub">Hear what the work sounds like — songs written <em>from</em> it, not about it. The whole thing, sung.</div>
       <div class="arrow">→</div>
     </div>
   </a>
-  <a class="wing ideas" href="/research/">
+  <a class="wing ideas" href="/research/" id="wingIdeas">
     <div class="c">
       <div class="lbl fut">for the ideas</div>
       <div class="sub">A whole house of them — every room a piece of the known world, same coupling under all of it.</div>
@@ -89,5 +82,192 @@ body{
 </div>
 
 <div class="foot fut">two wings · there's no wrong one · everything free</div>
+<div class="readout fut" id="readout"></div>
+
+<script>
+(function(){
+'use strict';
+// ═══════════════════════════════════════════════════════════════════
+// TWO WINGS — one butterfly, two coupled oscillator systems.
+//
+// Each wing is ~68 nodes filling a wing-shaped silhouette (golden-ratio
+// / plastic-number quasi-random fill — the same family of math this
+// site uses elsewhere for organic point placement). Within a wing,
+// every node is a Kuramoto oscillator entrained (mean-field) to that
+// wing's own master phase — this is what gives the wing its living,
+// slightly unsynchronized shimmer instead of being a rigid drawn shape.
+//
+// The two wings' master phases are themselves a two-oscillator Kuramoto
+// pair — the same "two separate clocks, they hesitate and fight" system
+// from an earlier homepage (two dancing shapes, June 2026). Their phase
+// difference IS the flap: each wing rigidly rotates open/closed on its
+// own phase, so the two wings flap together when synchronized and
+// drift apart when not — coupling made visible, not decorated on top.
+// ═══════════════════════════════════════════════════════════════════
+
+var cv=document.getElementById('wingCanvas'),cx=cv.getContext('2d');
+var W=0,H=0,dpr=1,t=0;
+var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+var TAU=Math.PI*2;
+var PHI=0.6180339887498949,PLASTIC=0.6823278038280194; // frac parts used as a 2D low-discrepancy fill
+
+var N=reduced?54:137,NA=Math.ceil(N/2),NB=N-NA;
+
+var goldC=[238,176,92],roseC=[210,150,120],violC=[150,142,224],inkC=[200,196,224];
+
+function makeWing(count,seedOff){
+  var arr=[];
+  for(var i=0;i<count;i++){
+    var u=((i+seedOff)*PHI)%1;                    // -1..1 span position (tip to tip)
+    var s=u*2-1;
+    var v=((i+seedOff)*PLASTIC)%1;                 // 0..1 depth from spine to outer edge
+    var width=Math.pow(Math.max(0,1-s*s),0.72);    // vesica/leaf envelope — 0 at tips, widest at spine-middle
+    arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:0.7+Math.random()*0.6});
+  }
+  return arr;
+}
+var wingL=makeWing(NA,0),wingR=makeWing(NB,NA);
+
+// master phases — one per wing, mutually Kuramoto-coupled (the flap)
+var masterL=0,masterR=Math.PI*0.85,K_now=0.65;
+var hoverL=0,hoverR=0; // smoothed 0..1 hover boost per wing
+
+var reducedScale=reduced?0.6:1;
+
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();
+addEventListener('resize',resize,{passive:true});
+
+var wingMusic=document.getElementById('wingMusic'),wingIdeas=document.getElementById('wingIdeas');
+var hoverTargetL=0,hoverTargetR=0;
+wingMusic.addEventListener('mouseenter',function(){hoverTargetL=1});
+wingMusic.addEventListener('mouseleave',function(){hoverTargetL=0});
+wingIdeas.addEventListener('mouseenter',function(){hoverTargetR=1});
+wingIdeas.addEventListener('mouseleave',function(){hoverTargetR=0});
+wingMusic.addEventListener('touchstart',function(){hoverTargetL=1},{passive:true});
+wingMusic.addEventListener('touchend',function(){hoverTargetL=0},{passive:true});
+wingMusic.addEventListener('touchcancel',function(){hoverTargetL=0},{passive:true});
+wingIdeas.addEventListener('touchstart',function(){hoverTargetR=1},{passive:true});
+wingIdeas.addEventListener('touchend',function(){hoverTargetR=0},{passive:true});
+wingIdeas.addEventListener('touchcancel',function(){hoverTargetR=0},{passive:true});
+
+function step(dt){
+  hoverL+=(hoverTargetL-hoverL)*0.04;
+  hoverR+=(hoverTargetR-hoverR)*0.04;
+
+  // ── the flap: two mutually-coupled master oscillators ──
+  // Each wing's natural frequency drifts slowly on its own (different,
+  // near-irrational periods) so the pair keeps crossing back near the
+  // critical coupling threshold — real hesitation, not a one-time lock.
+  // Hover raises that wing's own frequency (reach toward you) + coupling
+  // strength K, so attention pulls them into sync faster.
+  K_now=0.65*(1+0.65*Math.max(hoverL,hoverR));
+  var wL=0.86+hoverL*0.45+0.55*Math.sin(t*0.071),wR=0.80+hoverR*0.45+0.55*Math.sin(t*0.113+1.3);
+  masterL+=dt*(wL+K_now*Math.sin(masterR-masterL));
+  masterR+=dt*(wR+K_now*Math.sin(masterL-masterR));
+
+  // ── per-node entrainment within each wing (mean-field toward that wing's master phase) ──
+  var kIntra=2.2;
+  for(var i=0;i<wingL.length;i++){var n=wingL[i];n.phase+=dt*(n.omega+kIntra*Math.sin(masterL-n.phase));}
+  for(var j=0;j<wingR.length;j++){var m=wingR[j];m.phase+=dt*(m.omega+kIntra*Math.sin(masterR-m.phase));}
+}
+
+function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert){
+  // side: -1/+1 — left/right wing when horizontal, top/bottom wing when vertical (mobile)
+  var flap=Math.sin(masterPhase)*(0.34+hover*0.18); // rigid open/close rotation, boosted on hover
+  var ca=Math.cos(flap),sa=Math.sin(flap);
+  var reach=span*(0.86+hover*0.16);
+
+  // place a local point (lx = out-from-spine, ly = position along the wing's span)
+  // into world space — rotated by the flap, and by 90° when stacked vertically
+  function place(lx,ly){
+    if(vert)return[hingeX+(lx*sa+ly*ca),hingeY+side*(lx*ca-ly*sa)];
+    return[hingeX+side*(lx*ca-ly*sa),hingeY+(lx*sa+ly*ca)];
+  }
+
+  // connective veins between nearby nodes with similar phase — drawn first, under the nodes
+  cx.lineWidth=0.6;
+  for(var i=0;i<nodes.length;i++){
+    var a=nodes[i];
+    for(var k=1;k<=3;k++){
+      var b=nodes[(i+k)%nodes.length];
+      var pd=Math.abs(a.phase-b.phase)%TAU;if(pd>Math.PI)pd=TAU-pd;
+      var sync=1-pd/Math.PI;
+      if(sync<0.72)continue;
+      var pa=place(a.v*a.width*reach,a.s*span),pb=place(b.v*b.width*reach,b.s*span);
+      cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(sync*sync*0.22).toFixed(3)+')';
+      cx.beginPath();cx.moveTo(pa[0],pa[1]);cx.lineTo(pb[0],pb[1]);cx.stroke();
+    }
+  }
+
+  // nodes — lit by how close their own phase is to their wing's master phase
+  for(var n2=0;n2<nodes.length;n2++){
+    var nd=nodes[n2];
+    var dev=Math.sin(nd.phase-masterPhase); // -1..1, drives a small lift off the rigid wing surface
+    var p=place(nd.v*nd.width*reach*(1+dev*0.05),nd.s*span);
+    var lit=0.5+0.5*Math.cos(nd.phase-masterPhase);
+    var col=nd.v>0.66?tipCol:baseCol;
+    var r=(0.9+lit*1.6+hover*0.6)*reducedScale;
+    var a2=(0.16+lit*0.30+hover*0.18);
+    cx.beginPath();cx.arc(p[0],p[1],r,0,TAU);
+    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+a2.toFixed(3)+')';
+    cx.fill();
+  }
+
+  // soft body glow at the hinge, brighter when this wing's own coherence + hover is high
+  var glowR=span*0.5;
+  var g=cx.createRadialGradient(hingeX,hingeY,0,hingeX,hingeY,glowR);
+  g.addColorStop(0,'rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.05+hover*0.05).toFixed(3)+')');
+  g.addColorStop(1,'rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+',0)');
+  cx.fillStyle=g;cx.fillRect(hingeX-glowR,hingeY-glowR,glowR*2,glowR*2);
+}
+
+var last=0;
+function draw(now){
+  var dtReal=Math.min(0.05,(now-last)/1000||0.016);last=now;
+  t+=dtReal;
+  step(dtReal*(reduced?0.6:1));
+
+  cx.clearRect(0,0,W,H);
+  cx.globalCompositeOperation='lighter';
+
+  var vert=W<=720;
+  var hxL,hyL,hxR,hyR,span;
+  if(vert){
+    // stacked layout — matches the .wing{min-height:48vh} split: top wing / bottom wing
+    hxL=W/2;hyL=H*0.27;hxR=W/2;hyR=H*0.73;
+    span=Math.min(W*0.86,H*0.40)*0.5;
+  }else{
+    hxL=W/2;hyL=H*0.5;hxR=W/2;hyR=H*0.5;
+    span=Math.min(W*0.62,H*0.86)*0.5;
+  }
+  var midX=(hxL+hxR)/2,midY=(hyL+hyR)/2;
+
+  // phase-difference glow at the shared spine — bright when the wings are in sync
+  var pd=Math.abs(masterL-masterR)%TAU;if(pd>Math.PI)pd=TAU-pd;
+  var syncAmt=1-pd/Math.PI;
+  var sg=cx.createRadialGradient(midX,midY,0,midX,midY,span*0.55);
+  sg.addColorStop(0,'rgba(243,220,174,'+(0.03+syncAmt*syncAmt*0.10).toFixed(3)+')');
+  sg.addColorStop(1,'rgba(243,220,174,0)');
+  cx.fillStyle=sg;cx.fillRect(midX-span*0.55,midY-span*0.55,span*1.1,span*1.1);
+
+  drawWing(wingL,-1,hxL,hyL,span,masterL,hoverL,goldC,roseC,vert);
+  drawWing(wingR,1,hxR,hyR,span,masterR,hoverR,violC,inkC,vert);
+
+  cx.globalCompositeOperation='source-over';
+
+  var ro=document.getElementById('readout');
+  if(ro)ro.textContent='K='+K_now.toFixed(2)+' · sync='+syncAmt.toFixed(2);
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+})();
+</script>
 </body>
 </html>
