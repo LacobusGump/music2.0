@@ -67,14 +67,14 @@ body{
 <div class="wings">
   <a class="wing music" href="/field/" id="wingMusic">
     <div class="c">
-      <div class="lbl fut">for the music</div>
+      <div class="lbl fut">hear the idea</div>
       <div class="sub">Hear what the work sounds like — songs written <em>from</em> it, not about it. The whole thing, sung.</div>
       <div class="arrow">→</div>
     </div>
   </a>
   <a class="wing ideas" href="/research/" id="wingIdeas">
     <div class="c">
-      <div class="lbl fut">for the ideas</div>
+      <div class="lbl fut">read the idea</div>
       <div class="sub">A whole house of them — every room a piece of the known world, same coupling under all of it.</div>
       <div class="arrow">→</div>
     </div>
@@ -115,13 +115,30 @@ var N=reduced?54:137,NA=Math.ceil(N/2),NB=N-NA;
 
 var goldC=[238,176,92],roseC=[210,150,120],violC=[150,142,224],inkC=[200,196,224];
 
+// A real wing isn't a symmetric lens — the leading edge is one smooth,
+// convex sweep and the trailing edge tapers to a point. s0 sets where the
+// widest point sits (off-center, toward the leading-edge side); the two
+// halves use different curve shapes instead of one symmetric formula.
+// Shared between node placement (makeWing) and the drawn outline (drawWing)
+// so they always agree on the same silhouette.
+function wingWidth(s){
+  var s0=-0.22;
+  if(s<s0){
+    var t=(s+1)/(s0+1); // 0 at tip, 1 at the widest point
+    return Math.pow(Math.max(0,Math.sin(t*Math.PI*0.5)),0.8);
+  }else{
+    var t2=(s-s0)/(1-s0); // 0 at the widest point, 1 at the other tip
+    return Math.pow(Math.max(0,Math.cos(t2*Math.PI*0.5)),1.5);
+  }
+}
+
 function makeWing(count,seedOff){
   var arr=[];
   for(var i=0;i<count;i++){
     var u=((i+seedOff)*PHI)%1;                    // -1..1 span position (tip to tip)
     var s=u*2-1;
     var v=((i+seedOff)*PLASTIC)%1;                 // 0..1 depth from spine to outer edge
-    var width=Math.pow(Math.max(0,1-s*s),0.72);    // vesica/leaf envelope — 0 at tips, widest at spine-middle
+    var width=wingWidth(s);                        // asymmetric wing envelope — see wingWidth()
     arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:1.1+Math.random()*1.0,nbrs:[],curLx:0,curLy:0,vlx:0,vly:0});
   }
   // veins should follow the wing's actual surface, not array order (the placement
@@ -304,6 +321,26 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
     if(vert)return[hingeX+(lx*sa+ly*ca),hingeY+side*(lx*ca-ly*sa)];
     return[hingeX+side*(lx*ca-ly*sa),hingeY+(lx*sa+ly*ca)];
   }
+
+  // the outline — the node constellation alone doesn't read as a wing at a
+  // glance (no explicit boundary, just a scatter of connections). Trace the
+  // actual envelope (wingWidth) as a smooth closed silhouette, faint, so the
+  // eye has a wing to anchor on and the nodes read as texture living inside
+  // it instead of the whole shape.
+  var reach=span*(0.86+hover*0.16),breath=0.80+R*0.32;
+  var OUT_STEPS=36,outerPts=[];
+  for(var oi=0;oi<=OUT_STEPS;oi++){
+    var os=-1+2*oi/OUT_STEPS;
+    outerPts.push(place(wingWidth(os)*reach*breath,os*span*breath));
+  }
+  cx.beginPath();
+  cx.moveTo(hingeX,hingeY);
+  cx.lineTo(outerPts[0][0],outerPts[0][1]);
+  for(var oj=1;oj<outerPts.length;oj++)cx.lineTo(outerPts[oj][0],outerPts[oj][1]);
+  cx.closePath();
+  cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.16+R*0.22+hover*0.10).toFixed(3)+')';
+  cx.lineWidth=1.1;
+  cx.stroke();
 
   // connective veins — sync-graded exactly like /flex/'s Machine: dim copper
   // for loosely related neighbors, bright gold only for genuinely phase-locked
