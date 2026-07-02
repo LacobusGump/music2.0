@@ -49,10 +49,20 @@ body{
 .readout{position:fixed;bottom:20px;right:20px;z-index:5;font-size:10px;letter-spacing:.1em;color:rgba(243,238,228,.22);pointer-events:none}
 
 @media(max-width:720px){
-  body{overflow:auto}
-  .wings{flex-direction:column;height:auto;min-height:100%}
-  .wing{min-height:48vh;padding:80px 22px}
+  /* Two halves meeting in the middle only reads as one body if both halves
+     are on screen at once — stacking them top/bottom broke that (each
+     block taller than a phone viewport, canvas tracking scroll position
+     of blocks that were never both visible together). Stay side-by-side
+     at every width instead; just tighten the columns and drop the long
+     description so two ~45vw columns have room to breathe. */
+  .wing{padding:16px 8px}
+  .sub{display:none}
+  .arrow{margin-top:10px}
   .readout{display:none}
+}
+@media(max-width:420px){
+  .lbl{font-size:15px}
+  .head .ask{font-size:17px}
 }
 </style>
 </head>
@@ -119,7 +129,7 @@ var isMobile=/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||innerWi
 var TAU=Math.PI*2;
 var PHI=0.6180339887498949,PLASTIC=0.6823278038280194; // frac parts used as a 2D low-discrepancy fill
 
-var N=reduced?54:(isMobile?76:137),NA=Math.ceil(N/2),NB=N-NA;
+var NW=reduced?27:(isMobile?38:69); // nodes PER WING — see wingTemplate below for why both wings use the same count
 
 var goldC=[238,176,92],roseC=[210,150,120],violC=[150,142,224],inkC=[200,196,224];
 
@@ -140,12 +150,12 @@ function wingWidth(s){
   }
 }
 
-function makeWing(count,seedOff){
+function makeWing(count){
   var arr=[];
   for(var i=0;i<count;i++){
-    var u=((i+seedOff)*PHI)%1;                    // -1..1 span position (tip to tip)
+    var u=(i*PHI)%1;                               // -1..1 span position (tip to tip)
     var s=u*2-1;
-    var v=((i+seedOff)*PLASTIC)%1;                 // 0..1 depth from spine to outer edge
+    var v=(i*PLASTIC)%1;                            // 0..1 depth from spine to outer edge
     var width=wingWidth(s);                        // asymmetric wing envelope — see wingWidth()
     // tiny random offset, not exactly (0,0) — with a force-directed repulsion
     // step, perfectly coincident points have a degenerate (zero) direction
@@ -172,7 +182,24 @@ function makeWing(count,seedOff){
   }
   return arr;
 }
-var wingL=makeWing(NA,0),wingR=makeWing(NB,NA);
+
+// Two halves of one whole — a real butterfly's wings, a brain's two
+// hemispheres, are the SAME structure mirrored, not two independent random
+// clouds that happen to sit near each other (which is what wingL/wingR were:
+// each its own makeWing() call, own randomness, own topology — never
+// actually symmetric, just statistically similar). Build the shape once and
+// clone it for both sides — place() mirrors the geometry via `side` — so
+// the two wings are structurally identical. What's NOT shared is each
+// node's phase/omega: same body, independent life, free to fall in and out
+// of sync with its mirror twin. That's the meeting-in-the-middle idea —
+// one form, two lives, reaching for each other.
+var wingTemplate=makeWing(NW);
+function cloneWing(template){
+  return template.map(function(n){
+    return{s:n.s,v:n.v,width:n.width,nbrs:n.nbrs,phase:Math.random()*TAU,omega:1.1+Math.random()*1.0,curLx:n.curLx,curLy:n.curLy,vlx:0,vly:0};
+  });
+}
+var wingL=cloneWing(wingTemplate),wingR=cloneWing(wingTemplate);
 
 // master phases — one per wing, mutually Kuramoto-coupled
 var masterL=0,masterR=Math.PI*0.85,K_now=0.65;
@@ -369,8 +396,9 @@ function step(dt,span){
 
 var GOLD_SYNC=[230,190,100]; // Machine's "phase-locked" thread color
 
-function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert,R){
-  // side: -1/+1 — left/right wing when horizontal, top/bottom wing when vertical (mobile)
+function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,R){
+  // side: -1/+1, left/right wing — layout is always side-by-side now (see
+  // CSS), so there's no vertical/stacked case to handle.
   // No rigid rotation of the wing as a whole — that was a designed animation
   // (flap = sin(masterPhase) spun around the hinge) sitting on top of an
   // otherwise emergent system, and with two wings each spinning on their own
@@ -381,7 +409,6 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
   // directed node positions, sync-graded veins, and R-driven breathing —
   // nothing is spun on top of them anymore.
   function place(lx,ly){
-    if(vert)return[hingeX+ly,hingeY+side*lx];
     return[hingeX+side*lx,hingeY+ly];
   }
 
@@ -478,27 +505,21 @@ function draw(now){
   var dtReal=Math.min(0.05,(now-last)/1000||0.016);last=now;
   t+=dtReal;
 
-  // Measure the real wing anchors every frame instead of guessing viewport
-  // fractions — on mobile the stacked layout is often taller than one screen
-  // (min-height:48vh × 2 plus padding), and a fixed canvas only ever covers
-  // one viewport, so a hardcoded H*0.73 for the second wing can land off-
-  // screen entirely once the page scrolls. getBoundingClientRect() is
+  // Measure the real wing anchors every frame — getBoundingClientRect is
   // viewport-relative, same coordinate space as the fixed canvas, so this
-  // self-corrects regardless of scroll, font reflow, or screen size.
+  // self-corrects for font reflow and viewport size with no guesswork.
+  // Layout is always side-by-side now (see CSS), both anchors on screen
+  // together at every width, so there's no scroll-tracking or stacked-vs-
+  // row branch to carry anymore.
   var rectL=wingMusic.getBoundingClientRect(),rectR=wingIdeas.getBoundingClientRect();
-  var rawHxL=rectL.left+rectL.width/2,rawHyL=rectL.top+rectL.height/2;
-  var rawHxR=rectR.left+rectR.width/2,rawHyR=rectR.top+rectR.height/2;
-  var vert=Math.abs(rawHyL-rawHyR)>Math.abs(rawHxL-rawHxR); // stacked vs side-by-side, from actual layout
-  var midX=(rawHxL+rawHxR)/2,midY=(rawHyL+rawHyR)/2;
-  // Pull the wing hinges all the way to the shared midpoint — a real
-  // butterfly's two wings share one attachment point at the thorax, they
-  // don't hover near each other. Each wing's shape only ever extends
-  // outward from its hinge (lx>=0, see wingWidth/makeWing), so putting both
-  // hinges at the exact same point makes the two sides meet exactly there
-  // and fan outward oppositely, instead of leaving a gap.
-  var IN=1.0;
-  var hxL=rawHxL+(midX-rawHxL)*IN,hyL=rawHyL+(midY-rawHyL)*IN;
-  var hxR=rawHxR+(midX-rawHxR)*IN,hyR=rawHyR+(midY-rawHyR)*IN;
+  // Both wings share one hinge point — a real butterfly's two wings (a
+  // brain's two hemispheres, two halves of one soul) meet at a single
+  // shared point, they don't hover near each other with a gap. Each wing's
+  // shape only ever extends outward from its hinge (lx>=0, see
+  // wingWidth/makeWing), so one shared point is what makes the two sides
+  // actually meet there and fan outward oppositely.
+  var midX=(rectL.left+rectL.width/2+rectR.left+rectR.width/2)/2;
+  var midY=(rectL.top+rectL.height/2+rectR.top+rectR.height/2)/2;
   var span=Math.min(rectL.width,rectL.height,rectR.width,rectR.height)*0.66;
 
   step(dtReal*(reduced?0.6:1),span);
@@ -514,8 +535,8 @@ function draw(now){
   sg.addColorStop(1,'rgba(243,220,174,0)');
   cx.fillStyle=sg;cx.fillRect(midX-span*0.55,midY-span*0.55,span*1.1,span*1.1);
 
-  drawWing(wingL,-1,hxL,hyL,span,masterL,hoverL,goldC,roseC,vert,RL);
-  drawWing(wingR,1,hxR,hyR,span,masterR,hoverR,violC,inkC,vert,RR);
+  drawWing(wingL,-1,midX,midY,span,masterL,hoverL,goldC,roseC,RL);
+  drawWing(wingR,1,midX,midY,span,masterR,hoverR,violC,inkC,RR);
 
   cx.globalCompositeOperation='source-over';
 
