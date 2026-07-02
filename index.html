@@ -61,7 +61,7 @@ body{
 
 <div class="head">
   <div class="k fut">begump</div>
-  <div class="ask">why did you <em>come?</em></div>
+  <div class="ask">what makes music <em>good?</em></div>
 </div>
 
 <div class="wings">
@@ -122,7 +122,7 @@ function makeWing(count,seedOff){
     var s=u*2-1;
     var v=((i+seedOff)*PLASTIC)%1;                 // 0..1 depth from spine to outer edge
     var width=Math.pow(Math.max(0,1-s*s),0.72);    // vesica/leaf envelope — 0 at tips, widest at spine-middle
-    arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:0.7+Math.random()*0.6,nbrs:[]});
+    arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:0.7+Math.random()*0.6,nbrs:[],curLx:0,curLy:0,vlx:0,vly:0});
   }
   // veins should follow the wing's actual surface, not array order (the placement
   // sequence above is a low-discrepancy fill, not spatially sorted — connecting
@@ -149,6 +149,14 @@ var wingL=makeWing(NA,0),wingR=makeWing(NB,NA);
 var masterL=0,masterR=Math.PI*0.85,K_now=0.65;
 var hoverL=0,hoverR=0; // smoothed 0..1 hover boost per wing
 
+// formT: 0→1 ramp on load — nodes start collapsed at the hinge and spring
+// outward into the wing shape as stiffness ramps up (same principle /deep/
+// uses for shape transitions: emerge, don't snap). pulseL/R: a heartbeat —
+// each wing pulses once per full revolution of its own master phase, decaying
+// fast, same shape as /deep/'s heart pulse (1+max(0,sin(t*5))*0.15) but
+// triggered by an actual phase-wrap instead of a decorative fixed clock.
+var formT=0,pulseL=0,pulseR=0,prevCycleL=0,prevCycleR=0;
+
 var reducedScale=reduced?0.6:1;
 
 function resize(){
@@ -173,9 +181,22 @@ wingIdeas.addEventListener('touchstart',function(){hoverTargetR=1},{passive:true
 wingIdeas.addEventListener('touchend',function(){hoverTargetR=0},{passive:true});
 wingIdeas.addEventListener('touchcancel',function(){hoverTargetR=0},{passive:true});
 
-function step(dt){
+function stepWingPhysics(nodes,masterPhase,reach,span,pulseScale,kSpring,damp,dt,kIntra){
+  for(var i=0;i<nodes.length;i++){
+    var n=nodes[i];
+    n.phase+=dt*(n.omega+kIntra*Math.sin(masterPhase-n.phase));
+    var dev=Math.sin(n.phase-masterPhase); // -1..1, small lift off the settled surface
+    var tlx=n.v*n.width*reach*(1+dev*0.05)*pulseScale,tly=n.s*span*pulseScale;
+    n.vlx+=(tlx-n.curLx)*kSpring;n.vly+=(tly-n.curLy)*kSpring;
+    n.vlx*=damp;n.vly*=damp;
+    n.curLx+=n.vlx;n.curLy+=n.vly;
+  }
+}
+
+function step(dt,span){
   hoverL+=(hoverTargetL-hoverL)*0.04;
   hoverR+=(hoverTargetR-hoverR)*0.04;
+  formT=Math.min(1,formT+dt*0.4); // ~2.5s to fully gather into shape on load
 
   // ── the flap: two mutually-coupled master oscillators ──
   // Each wing's natural frequency drifts slowly on its own (different,
@@ -188,20 +209,30 @@ function step(dt){
   masterL+=dt*(wL+K_now*Math.sin(masterR-masterL));
   masterR+=dt*(wR+K_now*Math.sin(masterL-masterR));
 
-  // ── per-node entrainment within each wing (mean-field toward that wing's master phase) ──
-  var kIntra=2.2;
-  for(var i=0;i<wingL.length;i++){var n=wingL[i];n.phase+=dt*(n.omega+kIntra*Math.sin(masterL-n.phase));}
-  for(var j=0;j<wingR.length;j++){var m=wingR[j];m.phase+=dt*(m.omega+kIntra*Math.sin(masterR-m.phase));}
+  // ── heartbeat: fires once per full revolution of each wing's own phase ──
+  var cycleL=Math.floor(masterL/TAU);if(cycleL>prevCycleL){pulseL=1;prevCycleL=cycleL;}
+  var cycleR=Math.floor(masterR/TAU);if(cycleR>prevCycleR){pulseR=1;prevCycleR=cycleR;}
+  pulseL*=0.90;pulseR*=0.90;
+
+  // ── per-node entrainment + spring-physics gathering into the wing shape ──
+  // Stiffness ramps with formT (collapsed-at-hinge → fully formed on load,
+  // same idea as /deep/'s shape morph) and settles into a soft, never-rigid
+  // spring — the wing keeps a little lag/life in it permanently, not just at birth.
+  var kIntra=2.2,kSpring=0.015+formT*0.075,damp=0.86;
+  var reachL=span*(0.86+hoverL*0.16),reachR=span*(0.86+hoverR*0.16);
+  stepWingPhysics(wingL,masterL,reachL,span,1+pulseL*0.16,kSpring,damp,dt,kIntra);
+  stepWingPhysics(wingR,masterR,reachR,span,1+pulseR*0.16,kSpring,damp,dt,kIntra);
 }
 
 function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert){
   // side: -1/+1 — left/right wing when horizontal, top/bottom wing when vertical (mobile)
   var flap=Math.sin(masterPhase)*(0.34+hover*0.18); // rigid open/close rotation, boosted on hover
   var ca=Math.cos(flap),sa=Math.sin(flap);
-  var reach=span*(0.86+hover*0.16);
 
   // place a local point (lx = out-from-spine, ly = position along the wing's span)
-  // into world space — rotated by the flap, and by 90° when stacked vertically
+  // into world space — rotated by the flap, and by 90° when stacked vertically.
+  // lx/ly here are each node's spring-settled current position (from step()),
+  // not a recomputed target — the wing is drawn where it actually is, mid-gather.
   function place(lx,ly){
     if(vert)return[hingeX+(lx*sa+ly*ca),hingeY+side*(lx*ca-ly*sa)];
     return[hingeX+side*(lx*ca-ly*sa),hingeY+(lx*sa+ly*ca)];
@@ -216,7 +247,7 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
       var pd=Math.abs(a.phase-b.phase)%TAU;if(pd>Math.PI)pd=TAU-pd;
       var sync=1-pd/Math.PI;
       if(sync<0.55)continue;
-      var pa=place(a.v*a.width*reach,a.s*span),pb=place(b.v*b.width*reach,b.s*span);
+      var pa=place(a.curLx,a.curLy),pb=place(b.curLx,b.curLy);
       cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(sync*sync*0.28).toFixed(3)+')';
       cx.beginPath();cx.moveTo(pa[0],pa[1]);cx.lineTo(pb[0],pb[1]);cx.stroke();
     }
@@ -225,8 +256,7 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
   // nodes — lit by how close their own phase is to their wing's master phase
   for(var n2=0;n2<nodes.length;n2++){
     var nd=nodes[n2];
-    var dev=Math.sin(nd.phase-masterPhase); // -1..1, drives a small lift off the rigid wing surface
-    var p=place(nd.v*nd.width*reach*(1+dev*0.05),nd.s*span);
+    var p=place(nd.curLx,nd.curLy);
     var lit=0.5+0.5*Math.cos(nd.phase-masterPhase);
     var col=nd.v>0.66?tipCol:baseCol;
     var r=(0.9+lit*1.6+hover*0.6)*reducedScale;
@@ -248,10 +278,6 @@ var last=0;
 function draw(now){
   var dtReal=Math.min(0.05,(now-last)/1000||0.016);last=now;
   t+=dtReal;
-  step(dtReal*(reduced?0.6:1));
-
-  cx.clearRect(0,0,W,H);
-  cx.globalCompositeOperation='lighter';
 
   var vert=W<=720;
   var hxL,hyL,hxR,hyR,span;
@@ -264,6 +290,11 @@ function draw(now){
     span=Math.min(W*0.62,H*0.86)*0.5;
   }
   var midX=(hxL+hxR)/2,midY=(hyL+hyR)/2;
+
+  step(dtReal*(reduced?0.6:1),span);
+
+  cx.clearRect(0,0,W,H);
+  cx.globalCompositeOperation='lighter';
 
   // phase-difference glow at the shared spine — bright when the wings are in sync
   var pd=Math.abs(masterL-masterR)%TAU;if(pd>Math.PI)pd=TAU-pd;
