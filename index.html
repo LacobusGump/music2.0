@@ -147,6 +147,7 @@ var wingL=makeWing(NA,0),wingR=makeWing(NB,NA);
 
 // master phases — one per wing, mutually Kuramoto-coupled (the flap)
 var masterL=0,masterR=Math.PI*0.85,K_now=0.65;
+var RL=0,RR=0; // each wing's own emergent order parameter — the Machine's "breath"
 var hoverL=0,hoverR=0; // smoothed 0..1 hover boost per wing
 
 // formT: 0→1 ramp on load — nodes start collapsed at the hinge and spring
@@ -203,7 +204,7 @@ var psiRawPrevL=0,psiRawPrevR=0;
 // their real spatial neighbors, normalized by actual neighbor count — not
 // mean-field to one imposed master phase. Coherence (R, psi) EMERGES from
 // that local structure instead of being simulated as a separate variable.
-function stepWingMachine(nodes,otherPsi,Kbase,pink,reach,span,pulseScale,kSpring,damp,dt){
+function stepWingMachine(nodes,otherPsi,Kbase,pink,reach,span,pulseScale,kSpring,damp,dt,bias){
   // K wanders on pink noise, way down from a "tuned" coupling constant —
   // nature doesn't hold K at a fixed value, it drifts near a low baseline.
   var Know=Math.max(0.02,Kbase+pink()*Kbase*1.8);
@@ -214,18 +215,20 @@ function stepWingMachine(nodes,otherPsi,Kbase,pink,reach,span,pulseScale,kSpring
   mre/=nodes.length;mim/=nodes.length;
   var R=Math.sqrt(mre*mre+mim*mim),psi=Math.atan2(mim,mre);
 
-  // light cross-wing pull — the two wings still reach for each other,
-  // just far more weakly than either wing's own internal coupling
-  var Kcross=0.035;
+  // cross-wing pull — strong enough to actually see the two wings arrive
+  // at sync and drift apart again, not just a theoretical nudge
+  var Kcross=0.075;
+
+  var breath=0.80+R*0.32; // Machine's trick: coherence visibly expands the shape, not just glows
 
   for(var i=0;i<nodes.length;i++){
     var n=nodes[i],c=0,nn=n.nbrs;
     for(var k=0;k<nn.length;k++)c+=Math.sin(nodes[nn[k]].phase-n.phase);
     if(nn.length>0)c/=nn.length;
-    n.phase+=dt*(n.omega+Know*c+Kcross*Math.sin(otherPsi-n.phase));
+    n.phase+=dt*(n.omega+bias+Know*c+Kcross*Math.sin(otherPsi-n.phase));
 
-    var dev=Math.sin(n.phase-psi); // -1..1, small lift off the settled surface
-    var tlx=n.v*n.width*reach*(1+dev*0.05)*pulseScale,tly=n.s*span*pulseScale;
+    var dev=Math.sin(n.phase-psi); // -1..1 — individual nodes carry the life, not a rigid rotation
+    var tlx=n.v*n.width*reach*breath*(1+dev*0.18)*pulseScale,tly=n.s*span*breath*pulseScale;
     n.vlx+=(tlx-n.curLx)*kSpring;n.vly+=(tly-n.curLy)*kSpring;
     n.vlx*=damp;n.vly*=damp;
     n.curLx+=n.vlx;n.curLy+=n.vly;
@@ -253,16 +256,28 @@ function step(dt,span){
   var kSpring=0.015+formT*0.075,damp=0.86;
   var Kbase=0.16*(1+hoverL*0.8),KbaseR=0.16*(1+hoverR*0.8); // "way down" — was 2.2
   var reachL=span*(0.86+hoverL*0.16),reachR=span*(0.86+hoverR*0.16);
-  var outL=stepWingMachine(wingL,masterR,Kbase,pinkL,reachL,span,1+pulseL*0.16,kSpring,damp,dt);
-  var outR=stepWingMachine(wingR,masterL,KbaseR,pinkR,reachR,span,1+pulseR*0.16,kSpring,damp,dt);
+  // Two wings built the same way naturally drift at nearly the same bulk rate,
+  // so even modest cross-coupling snaps them together and never lets go. Give
+  // each wing its own slowly, independently wandering bulk bias ("two separate
+  // clocks that hesitate and fight") so Kcross actually has to work to bring
+  // them into sync — real cycling, not a coincidence of near-identical inputs.
+  var biasL=0.06+0.14*Math.sin(t*0.071),biasR=-0.06+0.14*Math.sin(t*0.113+1.3);
+  var outL=stepWingMachine(wingL,masterR,Kbase,pinkL,reachL,span,1+pulseL*0.16,kSpring,damp,dt,biasL);
+  var outR=stepWingMachine(wingR,masterL,KbaseR,pinkR,reachR,span,1+pulseR*0.16,kSpring,damp,dt,biasR);
   psiRawPrevL=masterL;psiRawPrevR=masterR;
   masterL=outL.psi;masterR=outR.psi;
+  RL=outL.R;RR=outR.R;
   K_now=(outL.K+outR.K)*0.5;
 }
 
-function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert){
+var GOLD_SYNC=[230,190,100]; // Machine's "phase-locked" thread color
+
+function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert,R){
   // side: -1/+1 — left/right wing when horizontal, top/bottom wing when vertical (mobile)
-  var flap=Math.sin(masterPhase)*(0.34+hover*0.18); // rigid open/close rotation, boosted on hover
+  // The flap is now a small sway, not the show — individual node motion and
+  // R-driven brightness carry the life, same balance /flex/'s Machine strikes
+  // (that page doesn't rotate at all; coherence alone reads as "alive").
+  var flap=Math.sin(masterPhase)*(0.10+hover*0.08);
   var ca=Math.cos(flap),sa=Math.sin(flap);
 
   // place a local point (lx = out-from-spine, ly = position along the wing's span)
@@ -274,7 +289,10 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
     return[hingeX+side*(lx*ca-ly*sa),hingeY+(lx*sa+ly*ca)];
   }
 
-  // connective veins between spatially-real neighbors with similar phase — drawn first, under the nodes
+  // connective veins — sync-graded exactly like /flex/'s Machine: dim copper
+  // for loosely related neighbors, bright gold only for genuinely phase-locked
+  // pairs. That three-tier jump is what makes "locking" visible instead of a
+  // uniform haze.
   cx.lineWidth=0.6;
   for(var i=0;i<nodes.length;i++){
     var a=nodes[i];
@@ -282,30 +300,37 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
       var b=nodes[a.nbrs[k]];
       var pd=Math.abs(a.phase-b.phase)%TAU;if(pd>Math.PI)pd=TAU-pd;
       var sync=1-pd/Math.PI;
-      if(sync<0.55)continue;
+      if(sync<0.45)continue;
       var pa=place(a.curLx,a.curLy),pb=place(b.curLx,b.curLy);
-      cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(sync*sync*0.28).toFixed(3)+')';
+      var col=sync>0.85?GOLD_SYNC:baseCol;
+      var alpha=sync>0.85?(0.20+sync*0.55):(sync*sync*0.24);
+      cx.lineWidth=sync>0.85?1.1:0.6;
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha.toFixed(3)+')';
       cx.beginPath();cx.moveTo(pa[0],pa[1]);cx.lineTo(pb[0],pb[1]);cx.stroke();
     }
   }
 
-  // nodes — lit by how close their own phase is to their wing's master phase
+  // nodes — lit by how close their own phase is to their wing's master phase,
+  // boosted overall by this wing's own coherence R (Machine's "breath")
   for(var n2=0;n2<nodes.length;n2++){
     var nd=nodes[n2];
     var p=place(nd.curLx,nd.curLy);
     var lit=0.5+0.5*Math.cos(nd.phase-masterPhase);
     var col=nd.v>0.66?tipCol:baseCol;
-    var r=(0.9+lit*1.6+hover*0.6)*reducedScale;
-    var a2=(0.16+lit*0.30+hover*0.18);
+    var r=(0.8+lit*1.4+hover*0.6+R*1.4)*reducedScale;
+    var a2=(0.14+lit*0.26+hover*0.18+R*0.30);
     cx.beginPath();cx.arc(p[0],p[1],r,0,TAU);
     cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+a2.toFixed(3)+')';
     cx.fill();
   }
 
-  // soft body glow at the hinge, brighter when this wing's own coherence + hover is high
-  var glowR=span*0.5;
+  // center glow — quadratic in R like Machine's rGlow, so coherence reads as
+  // a visible bloom, not just a marginal brightness shift
+  var glowR=span*(0.42+R*0.28);
+  var rInt=R*R;
   var g=cx.createRadialGradient(hingeX,hingeY,0,hingeX,hingeY,glowR);
-  g.addColorStop(0,'rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.05+hover*0.05).toFixed(3)+')');
+  g.addColorStop(0,'rgba('+GOLD_SYNC[0]+','+GOLD_SYNC[1]+','+GOLD_SYNC[2]+','+(0.04+rInt*0.22+hover*0.05).toFixed(3)+')');
+  g.addColorStop(0.4,'rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.02+rInt*0.08).toFixed(3)+')');
   g.addColorStop(1,'rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+',0)');
   cx.fillStyle=g;cx.fillRect(hingeX-glowR,hingeY-glowR,glowR*2,glowR*2);
 }
@@ -342,8 +367,8 @@ function draw(now){
   sg.addColorStop(1,'rgba(243,220,174,0)');
   cx.fillStyle=sg;cx.fillRect(midX-span*0.55,midY-span*0.55,span*1.1,span*1.1);
 
-  drawWing(wingL,-1,hxL,hyL,span,masterL,hoverL,goldC,roseC,vert);
-  drawWing(wingR,1,hxR,hyR,span,masterR,hoverR,violC,inkC,vert);
+  drawWing(wingL,-1,hxL,hyL,span,masterL,hoverL,goldC,roseC,vert,RL);
+  drawWing(wingR,1,hxR,hyR,span,masterR,hoverR,violC,inkC,vert,RR);
 
   cx.globalCompositeOperation='source-over';
 
