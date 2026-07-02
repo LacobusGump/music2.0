@@ -108,10 +108,16 @@ body{
 var cv=document.getElementById('wingCanvas'),cx=cv.getContext('2d');
 var W=0,H=0,dpr=1,t=0;
 var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Separate from prefers-reduced-motion — that flag is an accessibility
+// preference most phones don't set, but the O(n^2) force-directed repulsion
+// added tonight is real per-frame CPU work that a mobile chip pays a much
+// higher price for than a desktop does. Gate node count and connectivity on
+// actual device class, not just an accessibility setting nobody toggled.
+var isMobile=/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||innerWidth<700;
 var TAU=Math.PI*2;
 var PHI=0.6180339887498949,PLASTIC=0.6823278038280194; // frac parts used as a 2D low-discrepancy fill
 
-var N=reduced?54:137,NA=Math.ceil(N/2),NB=N-NA;
+var N=reduced?54:(isMobile?76:137),NA=Math.ceil(N/2),NB=N-NA;
 
 var goldC=[238,176,92],roseC=[210,150,120],violC=[150,142,224],inkC=[200,196,224];
 
@@ -150,7 +156,7 @@ function makeWing(count,seedOff){
   // index-neighbors draws chords across the whole shape instead of local texture).
   // Precompute each node's true nearest spatial neighbors once, in nominal
   // (v*width, s) local space.
-  var K_NBR=5;
+  var K_NBR=isMobile?3:5;
   for(var a=0;a<arr.length;a++){
     var na=arr[a],ax=na.v*na.width,ay=na.s;
     var dists=[];
@@ -183,7 +189,10 @@ var formT=0,pulseL=0,pulseR=0,prevCycleL=0,prevCycleR=0;
 var reducedScale=reduced?0.6:1;
 
 function resize(){
-  dpr=Math.min(devicePixelRatio||1,2);
+  // full-screen canvas at 2x DPR is a lot of fill-rate (clearRect + many
+  // radial gradients + arcs, every frame) — fine for a desktop GPU, a real
+  // cost on a phone's. 1.5x still reads sharp on a phone at arm's length.
+  dpr=Math.min(devicePixelRatio||1,isMobile?1.5:2);
   W=innerWidth;H=innerHeight;
   cv.width=W*dpr;cv.height=H*dpr;
   cx.setTransform(dpr,0,0,dpr,0,0);
