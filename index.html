@@ -122,7 +122,24 @@ function makeWing(count,seedOff){
     var s=u*2-1;
     var v=((i+seedOff)*PLASTIC)%1;                 // 0..1 depth from spine to outer edge
     var width=Math.pow(Math.max(0,1-s*s),0.72);    // vesica/leaf envelope — 0 at tips, widest at spine-middle
-    arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:0.7+Math.random()*0.6});
+    arr.push({s:s,v:v,width:width,phase:Math.random()*TAU,omega:0.7+Math.random()*0.6,nbrs:[]});
+  }
+  // veins should follow the wing's actual surface, not array order (the placement
+  // sequence above is a low-discrepancy fill, not spatially sorted — connecting
+  // index-neighbors draws chords across the whole shape instead of local texture).
+  // Precompute each node's true nearest spatial neighbors once, in nominal
+  // (v*width, s) local space.
+  var K_NBR=3;
+  for(var a=0;a<arr.length;a++){
+    var na=arr[a],ax=na.v*na.width,ay=na.s;
+    var dists=[];
+    for(var b=0;b<arr.length;b++){
+      if(b===a)continue;
+      var nb=arr[b],dx=ax-nb.v*nb.width,dy=ay-nb.s;
+      dists.push({j:b,d:dx*dx+dy*dy});
+    }
+    dists.sort(function(p,q){return p.d-q.d;});
+    for(var k=0;k<Math.min(K_NBR,dists.length);k++)na.nbrs.push(dists[k].j);
   }
   return arr;
 }
@@ -190,17 +207,17 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
     return[hingeX+side*(lx*ca-ly*sa),hingeY+(lx*sa+ly*ca)];
   }
 
-  // connective veins between nearby nodes with similar phase — drawn first, under the nodes
+  // connective veins between spatially-real neighbors with similar phase — drawn first, under the nodes
   cx.lineWidth=0.6;
   for(var i=0;i<nodes.length;i++){
     var a=nodes[i];
-    for(var k=1;k<=3;k++){
-      var b=nodes[(i+k)%nodes.length];
+    for(var k=0;k<a.nbrs.length;k++){
+      var b=nodes[a.nbrs[k]];
       var pd=Math.abs(a.phase-b.phase)%TAU;if(pd>Math.PI)pd=TAU-pd;
       var sync=1-pd/Math.PI;
-      if(sync<0.72)continue;
+      if(sync<0.55)continue;
       var pa=place(a.v*a.width*reach,a.s*span),pb=place(b.v*b.width*reach,b.s*span);
-      cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(sync*sync*0.22).toFixed(3)+')';
+      cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(sync*sync*0.28).toFixed(3)+')';
       cx.beginPath();cx.moveTo(pa[0],pa[1]);cx.lineTo(pb[0],pb[1]);cx.stroke();
     }
   }
