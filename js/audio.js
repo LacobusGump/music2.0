@@ -55,6 +55,55 @@ document.addEventListener('click',function(e){
   }
 },true);
 })();
+
+// ── cross-tab audio lock — only one tab's audio plays at a time ──
+// The radio bar already carries a stream across page navigations within one
+// tab (sessionStorage). But browsers clone sessionStorage into a new tab
+// opened via a link click, so an already-playing tab's "I'm playing" state
+// leaks into the new tab, which then spins up its own independent <audio>
+// element — two tabs, two sources, layered. Individual inline song embeds
+// have the same problem from their own muted-autoplay-on-load. Fix: every
+// play(), anywhere on the site, in any tab, claims ownership over
+// BroadcastChannel (+ localStorage as a fallback for older browsers). Any
+// other tab hearing a claim that isn't its own immediately pauses everything
+// it has playing. Whichever tab you last pressed play in wins — that's the
+// one that keeps sounding, exactly like a single-tab session already does.
+(function(){
+'use strict';
+var TAB_ID='gt-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+var LOCK_KEY='gump_audio_owner';
+var bc=null;
+try{if('BroadcastChannel' in window)bc=new BroadcastChannel('gump-audio');}catch(e){}
+
+function pauseAllLocal(){
+  var els=document.getElementsByTagName('audio');
+  for(var i=0;i<els.length;i++){if(!els[i].paused)els[i].pause();}
+}
+function claim(){
+  var msg={tabId:TAB_ID,ts:Date.now()};
+  if(bc){try{bc.postMessage(msg);}catch(e){}}
+  try{localStorage.setItem(LOCK_KEY,JSON.stringify(msg));}catch(e){}
+}
+function onRemoteClaim(msg){
+  if(!msg||msg.tabId===TAB_ID)return; // ignore our own echo, if any
+  pauseAllLocal();
+}
+
+if(bc)bc.onmessage=function(e){onRemoteClaim(e.data);};
+// storage event only ever fires in OTHER tabs, never the one that wrote the key —
+// exactly the fallback semantics we want, no self-filtering needed here either.
+window.addEventListener('storage',function(e){
+  if(e.key!==LOCK_KEY||!e.newValue)return;
+  try{onRemoteClaim(JSON.parse(e.newValue));}catch(err){}
+});
+
+// catches every <audio> on the page however it was started — inline embed,
+// the radio bar, an egg unlock, all of it. play doesn't bubble, but capture does.
+document.addEventListener('play',function(e){
+  if(e.target&&e.target.tagName==='AUDIO')claim();
+},true);
+})();
+
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js');}
 // mobile tap target — bumps all audio buttons to 44px on phones (inline styles can't override this without !important)
 (function(){var s=document.createElement('style');s.textContent='@media(max-width:760px){[id$="-btn"]{min-width:44px!important;min-height:44px!important;width:44px!important;height:44px!important;}}';document.head.appendChild(s);})();

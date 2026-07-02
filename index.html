@@ -181,16 +181,56 @@ wingIdeas.addEventListener('touchstart',function(){hoverTargetR=1},{passive:true
 wingIdeas.addEventListener('touchend',function(){hoverTargetR=0},{passive:true});
 wingIdeas.addEventListener('touchcancel',function(){hoverTargetR=0},{passive:true});
 
-function stepWingPhysics(nodes,masterPhase,reach,span,pulseScale,kSpring,damp,dt,kIntra){
+// Pink (1/f) noise — the timing signature of living systems (Hennig 2011),
+// used the same way elsewhere on this site. Drives K's natural fluctuation
+// instead of a clean sine — coupling strength that wanders like weather,
+// not one that was tuned to a target.
+function makePink(){
+  var s=[0,0,0,0,0,0,0];
+  return function(){
+    var w=Math.random()*2-1;
+    s[0]=0.99886*s[0]+w*0.0555179;s[1]=0.99332*s[1]+w*0.0750759;
+    s[2]=0.96900*s[2]+w*0.1538520;s[3]=0.86650*s[3]+w*0.3104856;
+    s[4]=0.55000*s[4]+w*0.5329522;s[5]=-0.7616*s[5]-w*0.0168980;
+    var o=s[0]+s[1]+s[2]+s[3]+s[4]+s[5]+s[6]+w*0.5362;
+    s[6]=w*0.115926;return o*0.11;
+  };
+}
+var pinkL=makePink(),pinkR=makePink();
+var psiRawPrevL=0,psiRawPrevR=0;
+
+// One "Machine" per wing (see /flex/'s Machine tab): nodes couple only to
+// their real spatial neighbors, normalized by actual neighbor count — not
+// mean-field to one imposed master phase. Coherence (R, psi) EMERGES from
+// that local structure instead of being simulated as a separate variable.
+function stepWingMachine(nodes,otherPsi,Kbase,pink,reach,span,pulseScale,kSpring,damp,dt){
+  // K wanders on pink noise, way down from a "tuned" coupling constant —
+  // nature doesn't hold K at a fixed value, it drifts near a low baseline.
+  var Know=Math.max(0.02,Kbase+pink()*Kbase*1.8);
+
+  // emergent order parameter for THIS wing, from its own nodes only
+  var mre=0,mim=0;
+  for(var i=0;i<nodes.length;i++){mre+=Math.cos(nodes[i].phase);mim+=Math.sin(nodes[i].phase);}
+  mre/=nodes.length;mim/=nodes.length;
+  var R=Math.sqrt(mre*mre+mim*mim),psi=Math.atan2(mim,mre);
+
+  // light cross-wing pull — the two wings still reach for each other,
+  // just far more weakly than either wing's own internal coupling
+  var Kcross=0.035;
+
   for(var i=0;i<nodes.length;i++){
-    var n=nodes[i];
-    n.phase+=dt*(n.omega+kIntra*Math.sin(masterPhase-n.phase));
-    var dev=Math.sin(n.phase-masterPhase); // -1..1, small lift off the settled surface
+    var n=nodes[i],c=0,nn=n.nbrs;
+    for(var k=0;k<nn.length;k++)c+=Math.sin(nodes[nn[k]].phase-n.phase);
+    if(nn.length>0)c/=nn.length;
+    n.phase+=dt*(n.omega+Know*c+Kcross*Math.sin(otherPsi-n.phase));
+
+    var dev=Math.sin(n.phase-psi); // -1..1, small lift off the settled surface
     var tlx=n.v*n.width*reach*(1+dev*0.05)*pulseScale,tly=n.s*span*pulseScale;
     n.vlx+=(tlx-n.curLx)*kSpring;n.vly+=(tly-n.curLy)*kSpring;
     n.vlx*=damp;n.vly*=damp;
     n.curLx+=n.vlx;n.curLy+=n.vly;
   }
+  return {R:R,psi:psi,K:Know};
 }
 
 function step(dt,span){
@@ -198,30 +238,26 @@ function step(dt,span){
   hoverR+=(hoverTargetR-hoverR)*0.04;
   formT=Math.min(1,formT+dt*0.4); // ~2.5s to fully gather into shape on load
 
-  // ── the flap: two mutually-coupled master oscillators ──
-  // Each wing's natural frequency drifts slowly on its own (different,
-  // near-irrational periods) so the pair keeps crossing back near the
-  // critical coupling threshold — real hesitation, not a one-time lock.
-  // Hover raises that wing's own frequency (reach toward you) + coupling
-  // strength K, so attention pulls them into sync faster.
-  K_now=0.65*(1+0.65*Math.max(hoverL,hoverR));
-  var wL=0.86+hoverL*0.45+0.55*Math.sin(t*0.071),wR=0.80+hoverR*0.45+0.55*Math.sin(t*0.113+1.3);
-  masterL+=dt*(wL+K_now*Math.sin(masterR-masterL));
-  masterR+=dt*(wR+K_now*Math.sin(masterL-masterR));
-
-  // ── heartbeat: fires once per full revolution of each wing's own phase ──
-  var cycleL=Math.floor(masterL/TAU);if(cycleL>prevCycleL){pulseL=1;prevCycleL=cycleL;}
-  var cycleR=Math.floor(masterR/TAU);if(cycleR>prevCycleR){pulseR=1;prevCycleR=cycleR;}
+  // ── heartbeat: fires when this wing's emergent phase wraps a full turn ──
+  // (edge-detected on the atan2 wrap boundary, since psi itself is never
+  // unwrapped — it's recomputed fresh from the nodes every frame)
+  function detectPulse(psiRaw,prevRaw){return (psiRaw-prevRaw)<-Math.PI;}
+  if(detectPulse(masterL,psiRawPrevL))pulseL=1;
+  if(detectPulse(masterR,psiRawPrevR))pulseR=1;
   pulseL*=0.90;pulseR*=0.90;
 
-  // ── per-node entrainment + spring-physics gathering into the wing shape ──
+  // ── per-node local coupling + spring-physics gathering into the wing shape ──
   // Stiffness ramps with formT (collapsed-at-hinge → fully formed on load,
   // same idea as /deep/'s shape morph) and settles into a soft, never-rigid
   // spring — the wing keeps a little lag/life in it permanently, not just at birth.
-  var kIntra=2.2,kSpring=0.015+formT*0.075,damp=0.86;
+  var kSpring=0.015+formT*0.075,damp=0.86;
+  var Kbase=0.16*(1+hoverL*0.8),KbaseR=0.16*(1+hoverR*0.8); // "way down" — was 2.2
   var reachL=span*(0.86+hoverL*0.16),reachR=span*(0.86+hoverR*0.16);
-  stepWingPhysics(wingL,masterL,reachL,span,1+pulseL*0.16,kSpring,damp,dt,kIntra);
-  stepWingPhysics(wingR,masterR,reachR,span,1+pulseR*0.16,kSpring,damp,dt,kIntra);
+  var outL=stepWingMachine(wingL,masterR,Kbase,pinkL,reachL,span,1+pulseL*0.16,kSpring,damp,dt);
+  var outR=stepWingMachine(wingR,masterL,KbaseR,pinkR,reachR,span,1+pulseR*0.16,kSpring,damp,dt);
+  psiRawPrevL=masterL;psiRawPrevR=masterR;
+  masterL=outL.psi;masterR=outR.psi;
+  K_now=(outL.K+outR.K)*0.5;
 }
 
 function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol,vert){
