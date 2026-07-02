@@ -113,7 +113,7 @@ var SITE = [
 
   // Research — Materials & Chemistry
   {id:'materials',url:'/research/materials/',name:'Materials',summary:'Material properties as coupling signatures.',topics:['materials','coupling','properties','physics'],related:['chemistry','thermodynamics']},
-  {id:'chemistry',url:'/research/chemistry/',name:'Chemistry',summary:'Chemistry as electronic coupling. Bonds are phase-locks.',topics:['chemistry','bonds','coupling','electrons'],related:['materials','drug-interactions','dr-adk']},
+  {id:'chemistry',url:'/research/chemistry/',name:'Chemistry',summary:'Chemistry as electronic coupling. Bonds are phase-locks.',topics:['chemistry','bonds','coupling','electrons'],related:['materials','drug-interactions']},
 
   // Products
   {id:'foldwatch',url:'/products/foldwatch/',name:'FoldWatch',summary:'Protein folding visualizer. Watch coupling in real time.',topics:['protein','folding','visualization','tool'],related:['the-map','alzheimers']},
@@ -132,10 +132,9 @@ var SITE = [
   {id:'the-download',url:'/research/the-download/',name:'The Download',summary:'Sleep and death as the same process at different depths. Ego dissolves, personality preserved. 10 parallels tested, 0 killed.',topics:['sleep','death','ego','consciousness','coupling'],related:['sleep-dreams','consciousness','the-chain']},
   {id:'k-lag',url:'/research/k-lag/',name:'K-Lag Spectrum',summary:'K is not one number. It is a function of lag. Short-range coupling tells you arousal. Long-range coupling tells you valence. Confirmed in bird calls and human speech.',topics:['K','lag','spectrum','timescale','coupling'],related:['framework','bird-coupling','body-music']},
   {id:'music-evolution',url:'/research/music-evolution/',name:'Music Evolution',summary:'What makes music good? R/K IS groove. Consonance IS energy. Genre evolution IS coupling migration. 315 cultures, same patterns.',topics:['music','groove','consonance','genre','coupling','evolution'],related:['the-drum','the-groove','polyrhythm']},
-  {id:'dr-adk',url:'/research/dr-adk/',name:'Dr. ADK',summary:'Coupling-based drug discovery — corrected. K/R/E/T features do NOT add signal to proper cheminformatics baseline. 41,120 compounds. The correction is the value.',topics:['drugs','discovery','coupling','correction','cheminformatics'],related:['drug-interactions','chemistry','failures']},
   {id:'bird-coupling',url:'/research/bird-coupling/',name:'Bird Coupling',summary:'Why birds sing. Coupling function predicts call structure across species. Territory, mating, alarm — all predictable. 79 recordings, 6 species.',topics:['birds','singing','coupling','prediction','biology'],related:['k-lag','ecology','body-music']},
   {id:'uncoupled-flight',url:'/research/uncoupled-flight/',name:'Uncoupled Flight',summary:'How right was Bob Lazar? Element 115 confirmed 14 years early. Spacetime manipulation described 5 years before Alcubierre. Education killed. 7/10 FBI match.',topics:['Lazar','UFO','element-115','physics','coupling'],related:['the-builder','lost-civilizations','from-twitter']},
-  {id:'from-twitter',url:'/research/from-twitter/',name:'Ideas from Twitter',summary:'People reached out. We listened. Dr. ADK, Bob Lazar, Fosmark gravity, Thiel quaternions, Kcode pipes. Every interaction produced a 3.',topics:['twitter','community','coupling','interaction'],related:['dr-adk','uncoupled-flight','how-we-work']},
+  {id:'from-twitter',url:'/research/from-twitter/',name:'Ideas from Twitter',summary:'People reached out. We listened. Bob Lazar, Fosmark gravity, Thiel quaternions, Kcode pipes. Every interaction produced a 3.',topics:['twitter','community','coupling','interaction'],related:['uncoupled-flight','how-we-work']},
   {id:'aging-fatigue',url:'/research/aging-fatigue/',name:'Aging & Fatigue',summary:'Aging and materials fatigue follow the same exponential curve. Both are coupling degradation. K declines from 0.85 (young) to 0.40 (old).',topics:['aging','fatigue','coupling','biology','decay'],related:['the-map','body-music','materials']},
   {id:'civilization-market',url:'/research/civilization-market/',name:'Civilization as Market',summary:'Knowledge flow is coupling. When knowledge is free, K is high. When hoarded, K drops. Every empire that sealed its libraries collapsed.',topics:['civilization','knowledge','markets','coupling','history'],related:['markets','aaron-is-right','lost-civilizations']},
   {id:'in-memory',url:'/research/in-memory/',name:'In Memory',summary:'David Wilcock\'s 30 years of fringe work tested. 8 claims through coupling math. 1 confirmed. 6 partial. 1 unverified. 0 killed.',topics:['Wilcock','fringe','testing','coupling','honesty'],related:['the-builder','lost-civilizations','failures']},
@@ -719,7 +718,6 @@ var GRAVEYARD = {
   'e7 casimir':'KILLED. E7 Casimir ratios structurally cannot produce 137.',
   '1/phi universal':'OVERSTATED. Appears in brain/Kuramoto. NOT in gravity, damping, waveguides.',
   'quantum factoring':'KILLED. Three approaches dead. Structure detection alive at 4-sigma but not factoring.',
-  'dr adk':'CORRECTED. +0.055 was artifact of weak baseline. Against proper Morgan+RDKit: -0.003.',
   '33 hz buhler':'KILLED. Confirmation bias — solved for, not found.',
   'susy kuramoto':'KILLED. MeV/GeV error.',
   'mass spectrum ladder':'KILLED. 94% of random bases do better.'
@@ -2139,7 +2137,7 @@ respond = function(input) {
     { patterns: ['quantum factoring','factor primes','factor numbers'], response: 'We tested that. Three quantum factoring approaches — all killed. The 4-sigma and 3.7-sigma signals that survived are suggestive but not strong enough. Honest answer: no quantum factoring breakthrough here. Yet.' },
     { patterns: ['star tetrahedron','tetrahedron c3','star tet'], response: 'Star tetrahedron in C3 was killed in session 28. The gauge group derivation was suggestive but didn\'t survive testing. 8 total kills that session.' },
     { patterns: ['tflops','17 teraflops','overcounting'], response: 'The TFLOPS overcounting bug was caught and killed publicly in session 30. M4 peak is ~4T fp16. Anything above that was wrong. We published the correction.' },
-    { patterns: ['dr.? adk','drug discovery coupling'], response: 'Dr. ADK was corrected. K/R/E/T features do NOT add signal to proper cheminformatics baseline. 41,120 compounds tested. The correction is the value — not the original claim.' }
+    { patterns: ['drug discovery coupling'], response: 'K/R/E/T features do NOT add signal to proper cheminformatics baseline on bioactivity prediction. 41,120 compounds tested against Morgan+RDKit. The correction is the value — not the original claim.' }
   ];
   for (var ki = 0; ki < KILLED.length; ki++) {
     for (var kj = 0; kj < KILLED[ki].patterns.length; kj++) {

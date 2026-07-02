@@ -2,7 +2,7 @@
 'use strict';
 if(location.pathname!=='/research/'&&location.pathname!=='/research/index.html')return;
 var gated=[
-'/research/religion/','/research/the-builder/','/research/dreamtime/','/research/scripture-engineering/','/research/sirius-signal/','/research/lost-civilizations/','/research/voynich/','/research/proto-elamite/','/research/indus-script/','/research/aaron-is-right/','/research/from-twitter/','/research/loo9/','/research/in-memory/','/research/the-download/','/research/shroud/','/research/sirius-thesis/','/research/crop-circles/','/research/leedskalnin/','/research/calendar-decode/','/research/planetary-geometry/','/research/comedians/','/research/the-jumps/','/research/dr-adk/','/research/for-taelin/','/research/sleep-dreams/','/research/earth-cell/','/research/sacsayhuaman/','/research/the-shape-keepers/'
+'/research/religion/','/research/the-builder/','/research/dreamtime/','/research/scripture-engineering/','/research/sirius-signal/','/research/lost-civilizations/','/research/voynich/','/research/proto-elamite/','/research/indus-script/','/research/aaron-is-right/','/research/from-twitter/','/research/loo9/','/research/in-memory/','/research/the-download/','/research/shroud/','/research/sirius-thesis/','/research/crop-circles/','/research/leedskalnin/','/research/calendar-decode/','/research/planetary-geometry/','/research/comedians/','/research/the-jumps/','/research/for-taelin/','/research/sleep-dreams/','/research/earth-cell/','/research/sacsayhuaman/','/research/the-shape-keepers/'
 ];
 var set={};gated.forEach(function(p){set[p]=true});
 function norm(h){try{return new URL(h,location.origin).pathname.replace(/index\.html$/,'').replace(/\/+$/,'/')||'/'}catch(e){return h}}
