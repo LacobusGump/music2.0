@@ -385,23 +385,45 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
   }
 
   // the outline — the node constellation alone doesn't read as a wing at a
-  // glance (no explicit boundary, just a scatter of connections). Trace the
-  // actual envelope (wingWidth) as a smooth closed silhouette, faint, so the
-  // eye has a wing to anchor on and the nodes read as texture living inside
-  // it instead of the whole shape.
-  var reach=span*(0.86+hover*0.16),breath=0.80+R*0.32;
-  var OUT_STEPS=36,outerPts=[];
+  // glance, so trace a boundary the eye can anchor on. Trace the REAL edge
+  // of the swarm, not a fixed formula: bucket nodes by their intrinsic spine
+  // position (n.s, set once at creation, stable even as curLx/curLy move)
+  // and in each bucket take whichever node the coupling/repulsion physics
+  // actually pushed farthest out right now. The boundary is wherever the
+  // swarm really is this frame — it breathes with R and dents where sync is
+  // low and repulsion wins, same as the node cloud it's tracing, instead of
+  // an idealized curve rescaled on top of it.
+  var OUT_STEPS=32,buckets=new Array(OUT_STEPS+1).fill(null);
+  for(var bi=0;bi<nodes.length;bi++){
+    var bn=nodes[bi],bidx=Math.round((bn.s+1)/2*OUT_STEPS);
+    if(!buckets[bidx]||bn.curLx>buckets[bidx].curLx)buckets[bidx]=bn;
+  }
+  // fill any spine slices with no node in them from the nearest filled
+  // neighbor so the traced boundary stays closed instead of tearing
+  for(var fi=0,lastGood=null;fi<=OUT_STEPS;fi++){if(buckets[fi])lastGood=buckets[fi];else buckets[fi]=lastGood;}
+  for(var fi2=OUT_STEPS,lastGood2=null;fi2>=0;fi2--){if(buckets[fi2])lastGood2=buckets[fi2];else buckets[fi2]=lastGood2;}
+  // a single farthest-node-per-bucket trace is noisy (real particle jitter,
+  // not a smooth curve) — average each point with its neighbors so the
+  // membrane reads as one continuous edge, not a spiky trace of individuals
+  var rawPts=buckets.map(function(pn){return[pn.curLx,pn.curLy];});
+  var outerPts=[];
   for(var oi=0;oi<=OUT_STEPS;oi++){
-    var os=-1+2*oi/OUT_STEPS;
-    outerPts.push(place(wingWidth(os)*reach*breath,os*span*breath));
+    var p0=rawPts[Math.max(0,oi-1)],p1=rawPts[oi],p2=rawPts[Math.min(OUT_STEPS,oi+1)];
+    outerPts.push(place((p0[0]+p1[0]*2+p2[0])/4,(p0[1]+p1[1]*2+p2[1])/4));
   }
   cx.beginPath();
   cx.moveTo(hingeX,hingeY);
   cx.lineTo(outerPts[0][0],outerPts[0][1]);
-  for(var oj=1;oj<outerPts.length;oj++)cx.lineTo(outerPts[oj][0],outerPts[oj][1]);
+  // quadratic-through-midpoints — cheap Catmull-Rom-ish smoothing so the
+  // traced membrane curves between points instead of a faceted polygon
+  for(var oj=1;oj<outerPts.length-1;oj++){
+    var mx=(outerPts[oj][0]+outerPts[oj+1][0])/2,my=(outerPts[oj][1]+outerPts[oj+1][1])/2;
+    cx.quadraticCurveTo(outerPts[oj][0],outerPts[oj][1],mx,my);
+  }
+  cx.lineTo(outerPts[outerPts.length-1][0],outerPts[outerPts.length-1][1]);
   cx.closePath();
-  cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.16+R*0.22+hover*0.10).toFixed(3)+')';
-  cx.lineWidth=1.1;
+  cx.strokeStyle='rgba('+baseCol[0]+','+baseCol[1]+','+baseCol[2]+','+(0.14+R*0.20+hover*0.09).toFixed(3)+')';
+  cx.lineWidth=1.0;
   cx.stroke();
 
   // connective veins — sync-graded exactly like /flex/'s Machine: dim copper
@@ -467,11 +489,13 @@ function draw(now){
   var rawHxR=rectR.left+rectR.width/2,rawHyR=rectR.top+rectR.height/2;
   var vert=Math.abs(rawHyL-rawHyR)>Math.abs(rawHxL-rawHxR); // stacked vs side-by-side, from actual layout
   var midX=(rawHxL+rawHxR)/2,midY=(rawHyL+rawHyR)/2;
-  // Pull the wing hinges in from their text-block centers toward the shared
-  // midline — anchored to the text for correct positioning, but drawn closer
-  // together so they read as one thing meeting in the middle, not two
-  // distant, unrelated clusters.
-  var IN=0.58;
+  // Pull the wing hinges all the way to the shared midpoint — a real
+  // butterfly's two wings share one attachment point at the thorax, they
+  // don't hover near each other. Each wing's shape only ever extends
+  // outward from its hinge (lx>=0, see wingWidth/makeWing), so putting both
+  // hinges at the exact same point makes the two sides meet exactly there
+  // and fan outward oppositely, instead of leaving a gap.
+  var IN=1.0;
   var hxL=rawHxL+(midX-rawHxL)*IN,hyL=rawHyL+(midY-rawHyL)*IN;
   var hxR=rawHxR+(midX-rawHxR)*IN,hyR=rawHyR+(midY-rawHyR)*IN;
   var span=Math.min(rectL.width,rectL.height,rectR.width,rectR.height)*0.66;
