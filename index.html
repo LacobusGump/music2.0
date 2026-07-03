@@ -130,6 +130,7 @@ var TAU=Math.PI*2;
 var PHI=0.6180339887498949,PLASTIC=0.6823278038280194; // frac parts used as a 2D low-discrepancy fill
 
 var NW=reduced?27:(isMobile?38:69); // nodes PER WING — see wingTemplate below for why both wings use the same count
+var TRAIL_LEN=reduced?0:(isMobile?3:6); // comet-tail length, off entirely under reduced-motion
 
 var goldC=[238,176,92],roseC=[210,150,120],violC=[150,142,224],inkC=[200,196,224];
 
@@ -196,7 +197,7 @@ function makeWing(count){
 var wingTemplate=makeWing(NW);
 function cloneWing(template){
   return template.map(function(n){
-    return{s:n.s,v:n.v,width:n.width,nbrs:n.nbrs,phase:Math.random()*TAU,omega:1.1+Math.random()*1.0,curLx:n.curLx,curLy:n.curLy,vlx:0,vly:0};
+    return{s:n.s,v:n.v,width:n.width,nbrs:n.nbrs,phase:Math.random()*TAU,omega:1.1+Math.random()*1.0,curLx:n.curLx,curLy:n.curLy,vlx:0,vly:0,trail:[]};
   });
 }
 var wingL=cloneWing(wingTemplate),wingR=cloneWing(wingTemplate);
@@ -217,17 +218,31 @@ var formT=0,pulseL=0,pulseR=0,prevCycleL=0,prevCycleR=0;
 
 var reducedScale=reduced?0.6:1;
 
+// The plain 'resize' event does NOT reliably fire on mobile Safari for the
+// one thing that was actually breaking centering — the address bar
+// collapsing/expanding as you scroll or the page settles after load. That's
+// a visualViewport change, not a window resize in WebKit's model, and W/H
+// (and therefore the wings' hinge point) could go stale and never catch up.
+// visualViewport.resize fires reliably for exactly this. Falls back to
+// innerWidth/innerHeight where visualViewport doesn't exist.
+function liveW(){return window.visualViewport?window.visualViewport.width:innerWidth;}
+function liveH(){return window.visualViewport?window.visualViewport.height:innerHeight;}
 function resize(){
   // full-screen canvas at 2x DPR is a lot of fill-rate (clearRect + many
   // radial gradients + arcs, every frame) — fine for a desktop GPU, a real
   // cost on a phone's. 1.5x still reads sharp on a phone at arm's length.
   dpr=Math.min(devicePixelRatio||1,isMobile?1.5:2);
-  W=innerWidth;H=innerHeight;
+  W=liveW();H=liveH();
   cv.width=W*dpr;cv.height=H*dpr;
   cx.setTransform(dpr,0,0,dpr,0,0);
 }
 resize();
 addEventListener('resize',resize,{passive:true});
+addEventListener('load',resize,{passive:true});
+if(window.visualViewport){
+  visualViewport.addEventListener('resize',resize,{passive:true});
+  visualViewport.addEventListener('scroll',resize,{passive:true});
+}
 
 var wingMusic=document.getElementById('wingMusic'),wingIdeas=document.getElementById('wingIdeas');
 var hoverTargetL=0,hoverTargetR=0;
@@ -268,7 +283,7 @@ var psiRawPrevL=0,psiRawPrevR=0;
 // motion — at a fraction of the cost. Named honestly: this is not curl noise,
 // it's the cheap approximation of its one relevant property.
 function pseudoFlow(seed,t){
-  return Math.sin(t*0.71+seed*3.1)*0.5+Math.sin(t*1.33+seed*7.7)*0.3+Math.sin(t*2.09+seed*1.9)*0.2;
+  return Math.sin(t*0.95+seed*3.1)*0.5+Math.sin(t*1.7+seed*7.7)*0.3+Math.sin(t*2.6+seed*1.9)*0.2;
 }
 
 // One "Machine" per wing (see /flex/'s Machine tab): nodes couple only to
@@ -355,6 +370,14 @@ function stepWingMachine(nodes,otherPsi,Kbase,pink,reach,span,pulseScale,damp,dt
 
     n.vlx=(n.vlx+fx*dt)*damp;n.vly=(n.vly+fy*dt)*damp;
     n.curLx+=n.vlx*pulseScale;n.curLy+=n.vly*pulseScale;
+
+    // a short comet-tail of recent positions — texture and depth that's
+    // still 100% derived from the real physics (literally where this node
+    // just was), not a decorative flourish. Also, quietly, the right kind
+    // of "meta": the shape now carries a visible trace of its own recent
+    // history, the same idea this whole project keeps returning to.
+    n.trail.push(n.curLx,n.curLy);
+    if(n.trail.length>TRAIL_LEN*2)n.trail.splice(0,2);
   }
   return {R:R,psi:psi,K:Know};
 }
@@ -376,8 +399,8 @@ function step(dt,span){
   // formT ramps 0→1 over ~2.5s on load (same idea as /deep/'s shape morph:
   // emerge, don't snap) and is fed into stepWingMachine to ramp the envelope
   // "home" pull specifically — see there for why.
-  var damp=0.86;
-  var Kbase=0.24*(1+hoverL*0.8),KbaseR=0.24*(1+hoverR*0.8); // "way down" from 2.2, not starved
+  var damp=0.905; // was 0.86 — held onto more of its own momentum per frame, reads livelier instead of settling fast
+  var Kbase=0.30*(1+hoverL*0.8),KbaseR=0.30*(1+hoverR*0.8); // was 0.24 — still "way down" from 2.2, just not sluggish
   var reachL=span*(0.86+hoverL*0.16),reachR=span*(0.86+hoverR*0.16);
   // Two wings built the same way naturally drift at nearly the same bulk rate,
   // so even modest cross-coupling snaps them together and never lets go. Give
@@ -482,14 +505,38 @@ function drawWing(nodes,side,hingeX,hingeY,span,masterPhase,hover,baseCol,tipCol
   }
 
   // nodes — lit by how close their own phase is to their wing's master phase,
-  // boosted overall by this wing's own coherence R (Machine's "breath")
+  // boosted overall by this wing's own coherence R (Machine's "breath").
+  // depth: reuses n.v (0..1, "depth from spine to outer edge" — already
+  // computed for the wing envelope, not a new fabricated channel) as an
+  // actual depth cue instead of leaving it purely structural: spine-near
+  // nodes read slightly larger/brighter (closer), outer-edge nodes recede,
+  // the way a real wingtip curls away from the eye. Cheap, no 3D projection
+  // needed, same "derive it from what's already there" rule this file
+  // keeps to everywhere else.
   for(var n2=0;n2<nodes.length;n2++){
     var nd=nodes[n2];
     var p=place(nd.curLx,nd.curLy);
     var lit=0.5+0.5*Math.cos(nd.phase-masterPhase);
     var col=nd.v>0.66?tipCol:baseCol;
-    var r=(0.8+lit*1.4+hover*0.6+R*1.4)*reducedScale;
-    var a2=(0.14+lit*0.26+hover*0.18+R*0.30);
+    var depth=1-nd.v*0.4;
+    var r=(0.8+lit*1.4+hover*0.6+R*1.4)*reducedScale*depth;
+    var a2=(0.14+lit*0.26+hover*0.18+R*0.30)*(0.55+depth*0.45);
+
+    // comet-tail — the node's own recent positions, fading toward the tail.
+    // Pure texture that costs nothing to justify: it's literally where this
+    // node just was, the same "derive it from the real thing" rule as
+    // everything else here, and it reads as depth/motion-through-time for
+    // free. Also, quietly, the right kind of self-referential — the shape
+    // now visibly carries its own short-term memory.
+    var tlen=nd.trail.length/2;
+    for(var ti=0;ti<tlen-1;ti++){
+      var pA=place(nd.trail[ti*2],nd.trail[ti*2+1]),pB=place(nd.trail[ti*2+2],nd.trail[ti*2+3]);
+      var fade=(ti+1)/tlen;
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(a2*fade*0.55).toFixed(3)+')';
+      cx.lineWidth=(0.35+fade*0.5)*reducedScale;
+      cx.beginPath();cx.moveTo(pA[0],pA[1]);cx.lineTo(pB[0],pB[1]);cx.stroke();
+    }
+
     cx.beginPath();cx.arc(p[0],p[1],r,0,TAU);
     cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+a2.toFixed(3)+')';
     cx.fill();
@@ -519,16 +566,22 @@ function draw(now){
   // innerHeight (the current visual viewport, toolbars accounted for). That
   // mismatch was silently dragging the whole wing pair toward the bottom-
   // right on phones. Since layout is always a clean 50/50 side-by-side
-  // split now, the true center is just W/2, H/2 in the canvas's own units —
-  // no DOM measurement needed, and nothing left to drift out of sync.
+  // split now, the true center is just half the live viewport — no DOM
+  // measurement needed, and nothing left to drift out of sync.
+  // Read the LIVE viewport every frame here, not the cached W/H — W/H only
+  // update when resize() fires, and even with visualViewport listeners
+  // attached, a frame can render between a toolbar animation and the
+  // matching resize callback. This is a cheap read; do it every frame so
+  // the hinge is never one tick behind the real screen.
+  var vw=liveW(),vh=liveH();
   // Both wings share this one point — a real butterfly's two wings (a
   // brain's two hemispheres, two halves of one soul) meet at a single
   // shared point, they don't hover near each other with a gap. Each wing's
   // shape only ever extends outward from its hinge (lx>=0, see
   // wingWidth/makeWing), so one shared point is what makes the two sides
   // actually meet there and fan outward oppositely.
-  var midX=W/2,midY=H/2;
-  var span=Math.min(W/2,H)*0.66;
+  var midX=vw/2,midY=vh/2;
+  var span=Math.min(vw/2,vh)*0.66;
 
   step(dtReal*(reduced?0.6:1),span);
 
