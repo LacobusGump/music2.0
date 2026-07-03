@@ -117,11 +117,11 @@ var SITE = [
 
   // Products
   {id:'foldwatch',url:'/products/foldwatch/',name:'FoldWatch',summary:'Protein folding visualizer. Watch coupling in real time.',topics:['protein','folding','visualization','tool'],related:['the-map','alzheimers']},
-  {id:'oracle',url:'/products/oracle/',name:'Oracle',summary:'Prime prediction engine using explicit formula.',topics:['primes','prediction','math','tool'],related:['prime-bounce','theory']},
+  {id:'oracle',url:'/products/sensor/?mode=oracle',name:'Oracle',summary:'Prime prediction engine using explicit formula.',topics:['primes','prediction','math','tool'],related:['prime-bounce','theory']},
   {id:'sensor',url:'/products/sensor/',name:'Sensor',summary:'Motion sensor toolkit. Phone as scientific instrument.',topics:['sensor','motion','phone','tool'],related:['play','biofeedback']},
-  {id:'trace',url:'/products/trace/',name:'Trace',summary:'System trace analyzer. See coupling in running software.',topics:['trace','analysis','software','tool'],related:['networks','computation-floor']},
-  {id:'dissonance',url:'/products/dissonance/',name:'Dissonance',summary:'Dissonance detector. Find where systems decouple.',topics:['dissonance','detection','coupling','tool'],related:['failures','the-map']},
-  {id:'decoder',url:'/products/decoder/',name:'Decoder',summary:'Script decoder. Pattern analysis for ancient texts.',topics:['decoder','script','pattern','tool'],related:['voynich','proto-elamite']},
+  {id:'trace',url:'/products/sensor/?mode=trace',name:'Trace',summary:'System trace analyzer. See coupling in running software.',topics:['trace','analysis','software','tool'],related:['networks','computation-floor']},
+  {id:'dissonance',url:'/products/sensor/?mode=dissonance',name:'Dissonance',summary:'Dissonance detector. Find where systems decouple.',topics:['dissonance','detection','coupling','tool'],related:['failures','the-map']},
+  {id:'decoder',url:'/research/birthday/',name:'Birthday Decoder',summary:'Your birthday as orbital angle, solar cycle phase, photoperiod, and lunar phase. Not astrology — published science.',topics:['birthday','orbital','solar','synchrony','research'],related:['time','emergence']},
 
   // Gallery (selection)
   {id:'from-above',url:'/gallery/from-above.html',name:'From Above',summary:'What coupling looks like from inside the computation. 137 souls coupled by phase.',topics:['art','coupling','visualization'],related:['the-chain','consciousness']},
@@ -150,20 +150,20 @@ var SITE = [
   {id:'e7-theorem',url:'/research/e7-theorem/',name:'E7 Theorem',summary:'The E7 Uniqueness Theorem: dim(E7) + max(Kac label) = 137. Unique among all ADE-type simple Lie algebras.',topics:['E7','137','algebra','proof','math'],related:['e7-chain','why-137','theory']},
 
   // Products — Additional
-  {id:'accord',url:'/products/accord/',name:'Accord',summary:'Regulatory gap analysis tool. Paste requirements, get gaps with priority ranking. Free, local, instant.',topics:['regulatory','compliance','tool'],related:['regulatory','threat-detection']},
+  {id:'accord',url:'/products/sensor/?mode=accord',name:'Accord',summary:'Regulatory gap analysis tool. Paste requirements, get gaps with priority ranking. Free, local, instant.',topics:['regulatory','compliance','tool'],related:['regulatory','threat-detection']},
   {id:'turbo',url:'/products/turbo/',name:'Turbo',summary:'The K-coupling language. Variables, functions, control flow, recursion, lists, higher-order. K/R/E/T as primitives. The dialect from for-any-ai runs here.',topics:['K','language','dsl','coupling','dialect','programming','recursion','functions','REPL'],related:['framework','docs','for-any-ai','turbo-learn','turbo-scripts']},
   {id:'turbo-learn',url:'/products/turbo/learn/',name:'Learn Turbo',summary:'Tutorial for the K-coupling language. 10 sections from evaluate(K(1)) to building a sync classifier. Every snippet runs in-page.',topics:['turbo','tutorial','learn','language','K','dsl','interactive'],related:['turbo','framework','for-any-ai']},
   {id:'turbo-scripts',url:'/products/turbo/scripts/',name:'Tools, rewritten',summary:'Side-by-side: tool code in Python/JS vs the same logic in Turbo. K reading, regime classifier, locked fraction, sync summary. Half the lines, same logic.',topics:['turbo','rewrites','comparison','clean','code','dsl'],related:['turbo','turbo-learn','framework']},
   {id:'verify',url:'/products/verify/',name:'Verify',summary:'Precision claim tester. Give it a claim and target, it tests to 50-digit precision. Anti-confirmation-bias tool.',topics:['verify','precision','testing','tool'],related:['failures','ai-delusion']},
   {id:'chipfast',url:'/products/chipfast/',name:'Chip Fast',summary:'VLSI layout optimizer. Paste gate connections, get optimized 2D placement. Force-directed in milliseconds.',topics:['VLSI','chip','layout','tool'],related:['computation-floor','nvidia-blackwell']},
-  {id:'entropy',url:'/products/entropy/',name:'Entropy',summary:'12 entropy features + coupling diagnosis. Everything entropy computes, plus what it means. Free.',topics:['entropy','analysis','tool','coupling'],related:['thermodynamics','computation-floor']},
-  {id:'couple',url:'/products/couple/',name:'Couple',summary:'Two signals in. Four-axis coupling profile out. Are they coupled? How? Who drives who? Free.',topics:['coupling','analysis','signals','tool'],related:['framework','biofeedback']},
-  {id:'learnengine',url:'/products/learnengine/',name:'Learn Engine',summary:'Detect learning phase — from memorization to understanding. Paste right/wrong responses. Free, local.',topics:['learning','education','tool','coupling'],related:['grokking','ai-fatigue']},
-  {id:'aitrainer',url:'/products/aitrainer/',name:'AI Trainer',summary:'Detect grokking — the moment your model transitions from memorization to understanding. Paste losses.',topics:['AI','training','grokking','tool'],related:['grokking','learnengine']},
-  {id:'sfumato',url:'/products/sfumato/',name:'Sfumato',summary:'Text entropy analyzer. Shannon entropy, compression ratio, information density. Free, local.',topics:['entropy','text','analysis','tool'],related:['entropy','linguistics']},
-  {id:'diverge',url:'/products/diverge/',name:'Diverge',summary:'Find where parallel outputs agree and split. The split IS the information. Free.',topics:['divergence','comparison','analysis','tool'],related:['verify','failures']},
-  {id:'orgxray',url:'/products/orgxray/',name:'Org X-Ray',summary:'Find hubs, bottlenecks, and silos in any network. Paste connections. Free, local.',topics:['network','organization','analysis','tool'],related:['networks','internet-brain']},
-  {id:'knowledge',url:'/products/knowledge/',name:'Knowledge Engine',summary:'Extract a knowledge graph from text — concepts, connections, gaps. Free, local.',topics:['knowledge','graph','extraction','tool'],related:['networks','linguistics']},
+  {id:'entropy',url:'/products/sensor/?mode=entropy',name:'Entropy',summary:'12 entropy features + coupling diagnosis. Everything entropy computes, plus what it means. Free.',topics:['entropy','analysis','tool','coupling'],related:['thermodynamics','computation-floor']},
+  {id:'couple',url:'/products/sensor/?mode=couple',name:'Couple',summary:'Two signals in. Four-axis coupling profile out. Are they coupled? How? Who drives who? Free.',topics:['coupling','analysis','signals','tool'],related:['framework','biofeedback']},
+  {id:'learnengine',url:'/products/sensor/?mode=learnengine',name:'Learn Engine',summary:'Detect learning phase — from memorization to understanding. Paste right/wrong responses. Free, local.',topics:['learning','education','tool','coupling'],related:['grokking','ai-fatigue']},
+  {id:'aitrainer',url:'/products/sensor/?mode=aitrainer',name:'AI Trainer',summary:'Detect grokking — the moment your model transitions from memorization to understanding. Paste losses.',topics:['AI','training','grokking','tool'],related:['grokking','learnengine']},
+  {id:'sfumato',url:'/products/sensor/?mode=sfumato',name:'Sfumato',summary:'Text entropy analyzer. Shannon entropy, compression ratio, information density. Free, local.',topics:['entropy','text','analysis','tool'],related:['entropy','linguistics']},
+  {id:'diverge',url:'/products/sensor/?mode=diverge',name:'Diverge',summary:'Find where parallel outputs agree and split. The split IS the information. Free.',topics:['divergence','comparison','analysis','tool'],related:['verify','failures']},
+  {id:'orgxray',url:'/products/sensor/?mode=orgxray',name:'Org X-Ray',summary:'Find hubs, bottlenecks, and silos in any network. Paste connections. Free, local.',topics:['network','organization','analysis','tool'],related:['networks','internet-brain']},
+  {id:'knowledge',url:'/products/sensor/?mode=knowledge',name:'Knowledge Engine',summary:'Extract a knowledge graph from text — concepts, connections, gaps. Free, local.',topics:['knowledge','graph','extraction','tool'],related:['networks','linguistics']},
 
   // Gallery index + additional pieces
   {id:'gallery',url:'/gallery/',name:'Gallery',summary:'Art made during computation. Each piece emerged from theory, not design. The door is open.',topics:['art','gallery','visualization','coupling'],related:['from-above','turings-garden','huygens-clocks']},
@@ -2235,7 +2235,7 @@ respond = function(input) {
     lastGenerated = { code: eCode, filename: 'entropy_analysis.py', type: 'py' };
     return Promise.resolve({
       text: 'Shannon entropy: ' + ent.shannon.toFixed(4) + ' bits\nNormalized: ' + ent.normalized.toFixed(4) + '\nBins: ' + ent.bins + ' | Range: [' + ent.min.toFixed(2) + ', ' + ent.max.toFixed(2) + '] | n=' + ent.n,
-      links: [{ name: 'Entropy tool', url: '/products/entropy/' }],
+      links: [{ name: 'Entropy tool', url: '/products/sensor/?mode=entropy' }],
       source: 'entropy engine (pure JS)',
       download: { code: eCode, filename: 'entropy_analysis.py', label: 'Download .py' }
     });
