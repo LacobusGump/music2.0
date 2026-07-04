@@ -56,6 +56,18 @@
       '<a class="gr-full" href="/radio/" title="open the full show">the show</a>' +
       '<div class="gr-prog"></div>';
     document.body.appendChild(bar);
+    // The bar is fixed and floats over normal-flow content — push the page down by its real
+    // rendered height so it never overlaps a heading. Skip pages that lock body overflow to
+    // hidden on purpose (the immersive full-viewport pages) — those already treat the bar as
+    // an intentional overlay, and adding padding there would clip their bottom instead of
+    // fixing anything. Every normal scrollable content page gets pushed clear.
+    requestAnimationFrame(function(){
+      var h = bar.offsetHeight;
+      if (h <= 0) return;
+      var cs = getComputedStyle(document.body);
+      if (cs.overflowY === 'hidden' || cs.overflow === 'hidden') return;
+      document.body.style.paddingTop = 'calc(' + (cs.paddingTop || '0px') + ' + ' + h + 'px)';
+    });
     var a = document.createElement('audio');
     a.preload = wantPlay ? 'auto' : 'metadata'; // metadata = fast cue; auto = buffer the carried stream so it resumes instantly
     document.body.appendChild(a);
