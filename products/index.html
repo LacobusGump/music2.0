@@ -190,7 +190,7 @@ if(field && !matchMedia('(prefers-reduced-motion: reduce)').matches){
   resize();addEventListener('resize',resize,{passive:true});draw();
 }
 
-// ═══ WORLD ORBS — one rotating particle sphere per world, distinct signature ═══
+// ═══ WORLD ORBS — one rotating particle formation per world, reforming into new shapes over time ═══
 var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 var ORB_SPEC = {
   data:  {n:70,  col:'gold',   speed:0.30, wobble:0.55},
@@ -199,38 +199,60 @@ var ORB_SPEC = {
   art:   {n:80,  col:'violet', speed:0.18, wobble:0.65},
   build: {n:36,  col:'faint',  speed:0.12, wobble:1.2}
 };
+var GA = 2.399963229728653; // golden angle — even spread on/around any shape
+var SHAPES = {
+  sphere: function(i,n,r){ var phi=Math.acos(1-2*(i+0.5)/n), th=i*GA; return {x:Math.sin(phi)*Math.cos(th)*r, y:Math.cos(phi)*r, z:Math.sin(phi)*Math.sin(th)*r}; },
+  torus: function(i,n,r){ var u=i*GA, v=i*2.618033988749895, R2=r*0.62, r2=r*0.36; return {x:(R2+r2*Math.cos(v))*Math.cos(u), y:r2*Math.sin(v), z:(R2+r2*Math.cos(v))*Math.sin(u)}; },
+  cube: function(i,n,r){ var side=Math.max(2,Math.ceil(Math.pow(n,1/3))), a=i%side, b=Math.floor(i/side)%side, c=Math.floor(i/(side*side))%side, s=side-1; return {x:(a/s-0.5)*2*r*0.78, y:(b/s-0.5)*2*r*0.78, z:(c/s-0.5)*2*r*0.78}; },
+  helix: function(i,n,r){ var turns=3, tt=i/n, strand=i%2, ang=tt*Math.PI*2*turns+(strand?Math.PI:0), rad=r*0.55; return {x:Math.cos(ang)*rad, y:(tt-0.5)*r*1.7, z:Math.sin(ang)*rad}; },
+  disc: function(i,n,r){ var rad=r*Math.sqrt((i+0.5)/n), ang=i*GA; return {x:Math.cos(ang)*rad, y:Math.sin(i*12.9898)*r*0.03, z:Math.sin(ang)*rad}; },
+  cluster: function(i,n,r){ function hash(s){var v=Math.sin(s)*43758.5453; return v-Math.floor(v);} var x=hash(i*12.9898+1)*2-1,y=hash(i*78.233+2)*2-1,z=hash(i*37.719+3)*2-1; var len=Math.sqrt(x*x+y*y+z*z)||1, sc=r*(0.4+0.6*hash(i*5.31+4)); return {x:x/len*sc, y:y/len*sc, z:z/len*sc}; }
+};
+var SHAPE_NAMES = Object.keys(SHAPES);
+function computeShapePts(name,r,n){ var fn=SHAPES[name], arr=[]; for(var i=0;i<n;i++) arr.push(fn(i,n,r)); return arr; }
+function easeInOutCubic(x){ return x<0.5 ? 4*x*x*x : 1-Math.pow(-2*x+2,3)/2; }
 document.querySelectorAll('canvas.orb').forEach(function(cv){
   var spec = ORB_SPEC[cv.dataset.orb] || ORB_SPEC.data;
-  var dpr=Math.min(devicePixelRatio||1,2), w=0,h=0,t=Math.random()*10,pts=[];
+  var dpr=Math.min(devicePixelRatio||1,2), w=0,h=0,R=0,t=Math.random()*10;
   var col = C[spec.col] || C.gold;
+  var curShape='sphere', fromPts=[], toPts=[], morphStart=0, morphDur=2.6, nextChangeAt=6+Math.random()*6;
   function resize(){
     var side = Math.min(cv.clientWidth||0, cv.clientHeight||0) || cv.clientWidth || 200;
     w = side; h = side; // force perfectly square, regardless of aspect-ratio CSS timing
     cv.width=w*dpr; cv.height=h*dpr;
     var cx0=cv.getContext('2d'); cx0.setTransform(dpr,0,0,dpr,0,0);
-    pts=[];
-    for(var i=0;i<spec.n;i++){
-      var phi=Math.acos(1-2*(i+0.5)/spec.n), theta=i*2.399963229728653; // fibonacci sphere
-      pts.push({phi:phi, theta:theta, r:Math.min(w,h)*0.36}); // pulled in from .42 so glow never touches the canvas edge
-    }
+    R = Math.min(w,h)*0.36; // pulled in from .42 so glow never touches the canvas edge
+    toPts = computeShapePts(curShape, R, spec.n);
+    fromPts = toPts; // static — no morph in progress right after a resize
+    morphStart = t;
   }
   var cx=cv.getContext('2d');
   function frame(){
     if(!w) resize();
     t += 0.012*spec.speed*10;
+    if(!reduce && t>=nextChangeAt && t-morphStart>=morphDur){
+      fromPts = toPts;
+      var choices = SHAPE_NAMES.filter(function(s){ return s!==curShape; });
+      curShape = choices[Math.floor(Math.random()*choices.length)];
+      toPts = computeShapePts(curShape, R, spec.n);
+      morphStart = t;
+      nextChangeAt = t + morphDur + 8 + Math.random()*10; // hold the new shape 8-18s before reforming again
+    }
+    var blend = morphDur>0 ? Math.min(1,(t-morphStart)/morphDur) : 1;
+    var eased = easeInOutCubic(blend);
     cx.clearRect(0,0,w,h);
     cx.globalCompositeOperation='lighter';
     var cxp=w/2, cyp=h/2;
-    var rotY=t*0.4;
+    var rotY=t*0.4, cosR=Math.cos(rotY), sinR=Math.sin(rotY);
     var proj=[];
-    for(var i=0;i<pts.length;i++){
-      var p=pts[i];
-      var wob = 1+Math.sin(t*0.8+p.theta*2)*0.05*spec.wobble;
-      var x0=Math.sin(p.phi)*Math.cos(p.theta+rotY)*p.r*wob;
-      var y0=Math.cos(p.phi)*p.r*wob;
-      var z0=Math.sin(p.phi)*Math.sin(p.theta+rotY)*p.r*wob;
-      var scale = 1/(1+z0/(p.r*2.4));
-      proj.push({x:cxp+x0*scale, y:cyp+y0*scale, s:scale, z:z0});
+    for(var i=0;i<fromPts.length;i++){
+      var fp=fromPts[i], tp=toPts[i];
+      var bx=fp.x+(tp.x-fp.x)*eased, by=fp.y+(tp.y-fp.y)*eased, bz=fp.z+(tp.z-fp.z)*eased;
+      var wob = 1+Math.sin(t*0.8+i*GA*2)*0.05*spec.wobble;
+      var x1=bx*wob, y1=by*wob, z1=bz*wob;
+      var xr=x1*cosR+z1*sinR, zr=-x1*sinR+z1*cosR;
+      var scale = 1/(1+zr/(R*2.4));
+      proj.push({x:cxp+xr*scale, y:cyp+y1*scale, s:scale, z:zr});
     }
     proj.sort(function(a,b){return a.z-b.z;});
     for(var i=0;i<proj.length;i++){
@@ -240,7 +262,7 @@ document.querySelectorAll('canvas.orb').forEach(function(cv){
       cx.fillStyle=g; cx.beginPath(); cx.arc(pr.x,pr.y,rr*2.4,0,6.29); cx.fill();
       cx.fillStyle=rgba(col, 0.85*br); cx.beginPath(); cx.arc(pr.x,pr.y,rr*0.55,0,6.29); cx.fill(); // crisp core so it reads as a point, not just haze
     }
-    // faint connecting lines between near neighbors on the sphere's "front"
+    // faint connecting lines between near neighbors on the formation's "front"
     cx.strokeStyle=rgba(col,0.05); cx.lineWidth=0.6;
     for(var i=0;i<proj.length;i+=1){
       var a=proj[i], b=proj[(i+3)%proj.length];
