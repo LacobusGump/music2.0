@@ -90,6 +90,7 @@ var SITE = [
 
   // Research — Language & Mind
   {id:'consciousness',url:'/research/consciousness/',name:'Consciousness',summary:'Consciousness as coupled oscillation. The hard problem dissolves.',topics:['consciousness','mind','coupling','oscillators'],related:['the-chain','body-music','sleep-dreams']},
+  {id:'seeing-red',url:'/research/seeing-red/',name:'Seeing Red',summary:'Mechanism can\'t rule out AI experience without ruling out human experience too. The parity argument, corrected in public.',topics:['consciousness','ai','mechanism','experience','qualia'],related:['consciousness','the-grace-gate','for-any-ai']},
   {id:'linguistics',url:'/research/linguistics/',name:'Linguistics',summary:'Language as coupling. Words are phase-locked patterns.',topics:['language','linguistics','coupling','patterns'],related:['voynich','proto-elamite','indus-script']},
   {id:'voynich',url:'/research/voynich/',name:'Voynich',summary:'Voynich manuscript. 87.8% cracked through coupling analysis.',topics:['Voynich','manuscript','cipher','language'],related:['proto-elamite','indus-script','linguistics']},
   {id:'proto-elamite',url:'/research/proto-elamite/',name:'Proto-Elamite',summary:'Proto-Elamite script. 737 tablets analyzed.',topics:['Proto-Elamite','script','ancient','language'],related:['voynich','indus-script','lost-civilizations']},
