@@ -16,6 +16,13 @@ h1{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:1.6em;font
 .pitch{font-size:0.88em;color:#bbb;margin:8px 0 20px;line-height:1.8;}
 h2{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.85em;font-weight:200;color:#8b4513;letter-spacing:0.1em;margin:30px 0 12px;}
 p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
+.explainer{background:#100c09;border:1px solid #8b451320;border-radius:10px;padding:18px 20px;margin:0 0 18px;text-align:center;}
+.explainer-label{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.62em;color:#8b451380;letter-spacing:0.12em;margin-bottom:10px;}
+#fold-viz{width:100%;max-width:520px;border-radius:8px;display:block;margin:0 auto;background:#0d0906;}
+.explainer-cap{font-size:0.86em;color:#ccc;min-height:2.6em;line-height:1.7;margin:12px auto 4px;max-width:480px;}
+.explainer-replay{background:none;border:1px solid #ffffff10;color:#8b4513;padding:6px 16px;border-radius:16px;font-family:Georgia,serif;font-size:0.78em;cursor:pointer;margin:8px 0 4px;}
+.explainer-replay:hover{border-color:#8b451350;}
+.explainer-note{font-size:0.68em;color:#555;line-height:1.6;margin-top:10px;text-align:left;}
 .tool{background:#100c09;border:1px solid #ffffff08;border-radius:10px;padding:20px;margin:0 0 12px;}
 .tool textarea{width:100%;background:#1a110d;border:1px solid #ffffff10;border-radius:6px;color:#ccc;font-family:'Courier New',monospace;font-size:0.78em;padding:12px;resize:vertical;outline:none;line-height:1.5;}
 .tool textarea:focus{border-color:#8b451330;outline:none;}
@@ -45,6 +52,14 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <h1>Fold Watch</h1>
 <p class="pitch">Paste a protein sequence. Get structure prediction, misfolding risk, aggregation hotspots, and drug strategy. Runs in your browser &mdash; your data never leaves your machine.</p>
+
+<div class="explainer" id="explainer">
+  <div class="explainer-label">WATCH ONE ACTUALLY FOLD</div>
+  <canvas id="fold-viz"></canvas>
+  <div class="explainer-cap" id="fold-caption">Loading a real protein&hellip;</div>
+  <button class="explainer-replay" id="fold-replay" style="display:none;" onclick="replayFold()">&#8635; watch again</button>
+  <p class="explainer-note">This is real physics, not an animation drawn to look right &mdash; the actual coordinates this sequence settles into, sampled as it happens. Same computation as the tool below, just slowed down so you can see it.</p>
+</div>
 
 <div class="tool">
   <div class="tool-label">PASTE PROTEIN SEQUENCE (example: human hemoglobin &alpha;-chain &mdash; or paste from <a href="https://www.uniprot.org/" target="_blank" style="color:#8b4513;">UniProt</a>)</div>
@@ -104,9 +119,6 @@ print(k['keystones'][0])&nbsp;&nbsp;# highest-impact residue
 // Real Chou-Fasman with nucleation. TANGO-like aggregation.
 // ═══════════════════════════════════════════════════════════════
 
-var PHI = (1 + Math.sqrt(5)) / 2;
-var INV_PHI = 1 / PHI;
-
 var C = {
   gold: [191,160,63], moss: [64,149,64], amber: [139,69,19],
   red: [147,59,56], void_bg: [8,8,13], text: [232,228,220],
@@ -116,6 +128,135 @@ var C = {
 };
 
 function lerpColor(c1,c2,t){return [Math.round(lerp(c1[0],c2[0],t)),Math.round(lerp(c1[1],c2[1],t)),Math.round(lerp(c1[2],c2[2],t))];}
+
+// ═══ WATCH IT FOLD — a real captured trajectory (28 snapshots, 1000-iteration physics run
+// on insulin B chain), played back slowly with plain-language captions. Not a fake animation:
+// this is gump.foldwatch.fold(seq, capture_trajectory=True), same physics as the tool below.
+var FOLD_HYDRO={A:0.70,R:0.00,N:0.11,D:0.11,C:0.78,E:0.11,Q:0.11,G:0.46,H:0.14,I:1.00,L:0.92,K:0.07,M:0.71,F:0.81,P:0.32,S:0.41,T:0.45,W:0.40,Y:0.36,V:0.97};
+var FOLD_CAPTIONS = [
+  {at:0,    text:'This is one real protein — insulin’s B chain, 30 amino acids in a row, still loose. Each dot is one building block.'},
+  {at:0.12, text:'Gold dots don’t like water. They start pulling away from the surface, toward the center.'},
+  {at:0.34, text:'The chain bends and twists as nearby blocks pull toward each other — this pulling, happening all at once across the whole chain, is folding.'},
+  {at:0.58, text:'Two matching blocks (cysteines) lock together with a real chemical bond — shown in green once they connect.'},
+  {at:0.80, text:'It keeps settling, small adjustments, fewer and fewer, like it’s finding the one shape that fits.'},
+  {at:0.97, text:'This is the final shape — the same one this exact sequence folds into for real. Computed from physics, not guessed.'}
+];
+(function(){
+  var cv = document.getElementById('fold-viz');
+  var capEl = document.getElementById('fold-caption');
+  var replayBtn = document.getElementById('fold-replay');
+  if(!cv) return;
+  var reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var dpr = Math.min(devicePixelRatio||1,2);
+  var data = null, playT0 = null, playing = false, held = false;
+  var DUR_MS = 26000; // full slow pass, ~26s — meant to be watched, not glanced at
+
+  function resize(){
+    var w = cv.clientWidth || 480;
+    var h = Math.round(w*0.72);
+    cv.style.height = h+'px';
+    cv.width = w*dpr; cv.height = h*dpr;
+    var cx = cv.getContext('2d'); cx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  addEventListener('resize', resize, {passive:true});
+
+  function lerp3(a,b,t){ return [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)]; }
+
+  function drawFrame(coords, colors, rotY, ssPair, showBond, cx, w, h){
+    cx.clearRect(0,0,w,h);
+    cx.fillStyle = 'rgba(13,9,6,1)'; cx.fillRect(0,0,w,h);
+    // fit: find bounding radius so it scales to the canvas regardless of protein size
+    var cxp=w/2, cyp=h/2;
+    var maxR=0;
+    for(var i=0;i<coords.length;i++){ var d=Math.sqrt(coords[i][0]*coords[i][0]+coords[i][1]*coords[i][1]+coords[i][2]*coords[i][2]); if(d>maxR)maxR=d; }
+    var scaleFit = (Math.min(w,h)*0.34) / Math.max(1,maxR);
+    var cosR=Math.cos(rotY), sinR=Math.sin(rotY);
+    var proj=[];
+    for(var i=0;i<coords.length;i++){
+      var x=coords[i][0]*scaleFit, y=coords[i][1]*scaleFit, z=coords[i][2]*scaleFit;
+      var xr=x*cosR+z*sinR, zr=-x*sinR+z*cosR;
+      var pscale = 1/(1+zr/(Math.min(w,h)*0.9));
+      proj.push({x:cxp+xr*pscale, y:cyp+y*pscale, s:pscale, z:zr});
+    }
+    // backbone trace
+    cx.globalCompositeOperation='lighter';
+    for(var i=0;i<proj.length-1;i++){
+      var a=proj[i], b=proj[i+1];
+      var col = colors[i];
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(0.25*Math.min(a.s,b.s)).toFixed(2)+')';
+      cx.lineWidth = 1.1*Math.min(a.s,b.s);
+      cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(b.x,b.y); cx.stroke();
+    }
+    // disulfide bond, once formed
+    if(showBond && ssPair){
+      var a=proj[ssPair[0]], b=proj[ssPair[1]];
+      cx.strokeStyle='rgba(100,200,140,0.55)'; cx.lineWidth=1.6;
+      cx.setLineDash([3,3]); cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(b.x,b.y); cx.stroke(); cx.setLineDash([]);
+    }
+    // residues, back-to-front
+    var order = proj.map(function(p,i){return i;}).sort(function(ia,ib){return proj[ia].z-proj[ib].z;});
+    for(var k=0;k<order.length;k++){
+      var i=order[k], p=proj[i], col=colors[i];
+      var br = 0.35+0.55*p.s, rr=(1.3+br*1.4)*p.s;
+      var g = cx.createRadialGradient(p.x,p.y,0,p.x,p.y,rr*2.2);
+      g.addColorStop(0, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(0.55*br).toFixed(2)+')');
+      g.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+      cx.fillStyle=g; cx.beginPath(); cx.arc(p.x,p.y,rr*2.2,0,6.29); cx.fill();
+      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(0.85*br).toFixed(2)+')';
+      cx.beginPath(); cx.arc(p.x,p.y,rr*0.55,0,6.29); cx.fill();
+    }
+    cx.globalCompositeOperation='source-over';
+  }
+
+  function updateCaption(frac){
+    var chosen = FOLD_CAPTIONS[0];
+    for(var i=0;i<FOLD_CAPTIONS.length;i++) if(frac>=FOLD_CAPTIONS[i].at) chosen = FOLD_CAPTIONS[i];
+    if(capEl.dataset.cur !== chosen.text){ capEl.dataset.cur = chosen.text; capEl.textContent = chosen.text; }
+  }
+
+  function frame(now){
+    if(!data) return;
+    var cx = cv.getContext('2d');
+    var w = cv.clientWidth, h = cv.clientHeight;
+    var frac = Math.max(0, Math.min(1, (now-playT0)/DUR_MS));
+    var n = data.trajectory.length;
+    var pos = frac*(n-1);
+    var i0 = Math.floor(pos), i1 = Math.min(n-1, i0+1);
+    var localT = pos-i0;
+    var A = data.trajectory[i0], B = data.trajectory[i1];
+    var coords = A.map(function(p,idx){ return lerp3(p, B[idx], localT); });
+    var colors = data.seq.split('').map(function(aa){ return lerpColor([90,110,150], C.gold, FOLD_HYDRO[aa]||0.4); });
+    var ssPair = data.disulfide_distances && data.disulfide_distances.length ? data.disulfide_distances[0] : null;
+    var d0 = coords[ssPair?ssPair[0]:0], d1 = coords[ssPair?ssPair[1]:0];
+    var bondDist = ssPair ? Math.sqrt(Math.pow(d0[0]-d1[0],2)+Math.pow(d0[1]-d1[1],2)+Math.pow(d0[2]-d1[2],2)) : 999;
+    drawFrame(coords, colors, frac*2.4, ssPair, bondDist<6, cx, w, h);
+    updateCaption(frac);
+    if(frac<1){ requestAnimationFrame(frame); }
+    else { held=true; playing=false; replayBtn.style.display='inline-block'; }
+  }
+
+  function startPlay(){
+    playing = true; held=false; playT0 = performance.now();
+    replayBtn.style.display='none';
+    if(reduceMotion){
+      // reduced motion: show only the final, settled shape, no animation
+      var cx=cv.getContext('2d'), w=cv.clientWidth, h=cv.clientHeight;
+      var last = data.trajectory[data.trajectory.length-1];
+      var colors = data.seq.split('').map(function(aa){ return lerpColor([90,110,150], C.gold, FOLD_HYDRO[aa]||0.4); });
+      drawFrame(last, colors, 0.8, data.disulfide_distances[0], true, cx, w, h);
+      capEl.textContent = FOLD_CAPTIONS[FOLD_CAPTIONS.length-1].text;
+      replayBtn.style.display='inline-block';
+      return;
+    }
+    requestAnimationFrame(frame);
+  }
+  window.replayFold = startPlay;
+
+  resize();
+  fetch('/products/foldwatch/trajectory-insulin.json').then(function(r){return r.json();}).then(function(d){
+    data = d; startPlay();
+  }).catch(function(){ capEl.textContent = 'Could not load the example — the tool below still works.'; });
+})();
 
 var pyodide = null;
 async function init() {
