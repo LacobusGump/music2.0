@@ -52,6 +52,9 @@ var PAGES = [
   {id:'playbook',url:'/playbook/',name:'Playbook',summary:'How to couple with AI honestly. The playbook that produced all this.',keys:'playbook how to AI couple honestly method guide'},
   {id:'love',url:'/love/',name:'Love',summary:'What is love? Same math. 1+1=3. The coupling constant of consciousness.',keys:'love what is love math 1+1=3 coupling constant consciousness'},
   {id:'play',url:'/play/',name:'Play',summary:'The instrument. Tilt your phone. Make music from motion.',keys:'play instrument phone tilt music motion make music'},
+  {id:'newton',url:'/research/newton/',name:'Newton',summary:'Wrote a sin-list at 19 about threatening to burn his abandoning mother\'s house down. Hid calculus 20 years, alchemy forever, hanged counterfeiters.',keys:'newton isaac calculus gravity alchemy leibniz hooke mint physicist genius childhood'},
+  {id:'feynman',url:'/research/feynman/',name:'Feynman',summary:'Cracked safes at Los Alamos for fun. Married his dying sweetheart, wrote her a letter a year after her death, sealed it for 40+ years.',keys:'feynman richard physicist quantum electrodynamics diagrams arline safecracking teaching nobel'},
+  {id:'einstein',url:'/research/einstein/',name:'Einstein',summary:'Thought in images and muscle sensation, not words. Loved the violin, was mediocre at it. Last 30 years chasing a theory that never worked.',keys:'einstein albert relativity physicist violin mileva unified field theory genius quantum'},
 ];
 
 // ═══ INTERPRETATION PATTERNS — what the query probably means ═══
