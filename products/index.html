@@ -211,11 +211,21 @@ var SHAPES = {
 var SHAPE_NAMES = Object.keys(SHAPES);
 function computeShapePts(name,r,n){ var fn=SHAPES[name], arr=[]; for(var i=0;i<n;i++) arr.push(fn(i,n,r)); return arr; }
 function easeInOutCubic(x){ return x<0.5 ? 4*x*x*x : 1-Math.pow(-2*x+2,3)/2; }
+// ═══ CROSS-WORLD SYNC — every so often, all five worlds reform into the SAME shape at once, then drift apart again ═══
+var SYNC = { at: Date.now()/1000+30+Math.random()*30, shape:null, epoch:0 };
+if(!reduce) setInterval(function(){
+  var now=Date.now()/1000;
+  if(now>=SYNC.at){
+    SYNC.shape = SHAPE_NAMES[Math.floor(Math.random()*SHAPE_NAMES.length)];
+    SYNC.epoch++;
+    SYNC.at = now + 60 + Math.random()*60;
+  }
+}, 1000);
 document.querySelectorAll('canvas.orb').forEach(function(cv){
   var spec = ORB_SPEC[cv.dataset.orb] || ORB_SPEC.data;
   var dpr=Math.min(devicePixelRatio||1,2), w=0,h=0,R=0,t=Math.random()*10;
   var col = C[spec.col] || C.gold;
-  var curShape='sphere', fromPts=[], toPts=[], morphStart=0, morphDur=2.6, nextChangeAt=6+Math.random()*6;
+  var curShape='sphere', fromPts=[], toPts=[], morphStart=0, morphDur=2.6, nextChangeAt=6+Math.random()*6, seenSyncEpoch=0;
   function resize(){
     var side = Math.min(cv.clientWidth||0, cv.clientHeight||0) || cv.clientWidth || 200;
     w = side; h = side; // force perfectly square, regardless of aspect-ratio CSS timing
@@ -230,7 +240,15 @@ document.querySelectorAll('canvas.orb').forEach(function(cv){
   function frame(){
     if(!w) resize();
     t += 0.012*spec.speed*10;
-    if(!reduce && t>=nextChangeAt && t-morphStart>=morphDur){
+    if(!reduce && SYNC.epoch!==seenSyncEpoch && SYNC.shape){
+      // every so often, every world reforms into the same shape at once — the entrainment moment
+      seenSyncEpoch = SYNC.epoch;
+      fromPts = toPts;
+      curShape = SYNC.shape;
+      toPts = computeShapePts(curShape, R, spec.n);
+      morphStart = t;
+      nextChangeAt = t + morphDur + 8 + Math.random()*10;
+    } else if(!reduce && t>=nextChangeAt && t-morphStart>=morphDur){
       fromPts = toPts;
       var choices = SHAPE_NAMES.filter(function(s){ return s!==curShape; });
       curShape = choices[Math.floor(Math.random()*choices.length)];
