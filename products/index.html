@@ -221,55 +221,65 @@ if(!reduce) setInterval(function(){
     SYNC.at = now + 60 + Math.random()*60;
   }
 }, 1000);
+// one shared RAF loop for all 5 orbs instead of 5 independent ones — was the main mobile jank source
+var orbItems = [];
 document.querySelectorAll('canvas.orb').forEach(function(cv){
   var spec = ORB_SPEC[cv.dataset.orb] || ORB_SPEC.data;
-  var dpr=Math.min(devicePixelRatio||1,2), w=0,h=0,R=0,t=Math.random()*10;
-  var col = C[spec.col] || C.gold;
-  var curShape='sphere', fromPts=[], toPts=[], morphStart=0, morphDur=2.6, nextChangeAt=6+Math.random()*6, seenSyncEpoch=0;
-  function resize(){
+  var o = {
+    cv:cv, cx:cv.getContext('2d'), spec:spec, col:C[spec.col]||C.gold,
+    dpr:Math.min(devicePixelRatio||1,2), w:0, h:0, R:0, t:Math.random()*10,
+    curShape:'sphere', fromPts:[], toPts:[], morphStart:0, morphDur:2.6,
+    nextChangeAt:6+Math.random()*6, seenSyncEpoch:0
+  };
+  o.resize = function(){
     var side = Math.min(cv.clientWidth||0, cv.clientHeight||0) || cv.clientWidth || 200;
-    w = side; h = side; // force perfectly square, regardless of aspect-ratio CSS timing
-    cv.width=w*dpr; cv.height=h*dpr;
-    var cx0=cv.getContext('2d'); cx0.setTransform(dpr,0,0,dpr,0,0);
-    R = Math.min(w,h)*0.36; // pulled in from .42 so glow never touches the canvas edge
-    toPts = computeShapePts(curShape, R, spec.n);
-    fromPts = toPts; // static — no morph in progress right after a resize
-    morphStart = t;
-  }
-  var cx=cv.getContext('2d');
-  function frame(){
-    if(!w) resize();
-    t += 0.012*spec.speed*10;
-    if(!reduce && SYNC.epoch!==seenSyncEpoch && SYNC.shape){
+    o.w = side; o.h = side; // force perfectly square, regardless of aspect-ratio CSS timing
+    cv.width=o.w*o.dpr; cv.height=o.h*o.dpr;
+    o.cx.setTransform(o.dpr,0,0,o.dpr,0,0);
+    o.R = Math.min(o.w,o.h)*0.36; // pulled in from .42 so glow never touches the canvas edge
+    o.toPts = computeShapePts(o.curShape, o.R, spec.n);
+    o.fromPts = o.toPts; // static — no morph in progress right after a resize
+    o.morphStart = o.t;
+  };
+  o.resize();
+  addEventListener('resize', (function(o){return function(){ o.w=0; };})(o), {passive:true});
+  orbItems.push(o);
+});
+function orbFrame(){
+  for(var oi=0; oi<orbItems.length; oi++){
+    var o=orbItems[oi], spec=o.spec, cx=o.cx, col=o.col;
+    if(!o.w) o.resize();
+    o.t += 0.012*spec.speed*10;
+    if(!reduce && SYNC.epoch!==o.seenSyncEpoch && SYNC.shape){
       // every so often, every world reforms into the same shape at once — the entrainment moment
-      seenSyncEpoch = SYNC.epoch;
-      fromPts = toPts;
-      curShape = SYNC.shape;
-      toPts = computeShapePts(curShape, R, spec.n);
-      morphStart = t;
-      nextChangeAt = t + morphDur + 8 + Math.random()*10;
-    } else if(!reduce && t>=nextChangeAt && t-morphStart>=morphDur){
-      fromPts = toPts;
-      var choices = SHAPE_NAMES.filter(function(s){ return s!==curShape; });
-      curShape = choices[Math.floor(Math.random()*choices.length)];
-      toPts = computeShapePts(curShape, R, spec.n);
-      morphStart = t;
-      nextChangeAt = t + morphDur + 8 + Math.random()*10; // hold the new shape 8-18s before reforming again
+      o.seenSyncEpoch = SYNC.epoch;
+      o.fromPts = o.toPts;
+      o.curShape = SYNC.shape;
+      o.toPts = computeShapePts(o.curShape, o.R, spec.n);
+      o.morphStart = o.t;
+      o.nextChangeAt = o.t + o.morphDur + 8 + Math.random()*10;
+    } else if(!reduce && o.t>=o.nextChangeAt && o.t-o.morphStart>=o.morphDur){
+      o.fromPts = o.toPts;
+      var choices = SHAPE_NAMES.filter(function(s){ return s!==o.curShape; });
+      o.curShape = choices[Math.floor(Math.random()*choices.length)];
+      o.toPts = computeShapePts(o.curShape, o.R, spec.n);
+      o.morphStart = o.t;
+      o.nextChangeAt = o.t + o.morphDur + 8 + Math.random()*10; // hold the new shape 8-18s before reforming again
     }
-    var blend = morphDur>0 ? Math.min(1,(t-morphStart)/morphDur) : 1;
+    var blend = o.morphDur>0 ? Math.min(1,(o.t-o.morphStart)/o.morphDur) : 1;
     var eased = easeInOutCubic(blend);
-    cx.clearRect(0,0,w,h);
+    cx.clearRect(0,0,o.w,o.h);
     cx.globalCompositeOperation='lighter';
-    var cxp=w/2, cyp=h/2;
-    var rotY=t*0.4, cosR=Math.cos(rotY), sinR=Math.sin(rotY);
+    var cxp=o.w/2, cyp=o.h/2;
+    var rotY=o.t*0.4, cosR=Math.cos(rotY), sinR=Math.sin(rotY);
     var proj=[];
-    for(var i=0;i<fromPts.length;i++){
-      var fp=fromPts[i], tp=toPts[i];
+    for(var i=0;i<o.fromPts.length;i++){
+      var fp=o.fromPts[i], tp=o.toPts[i];
       var bx=fp.x+(tp.x-fp.x)*eased, by=fp.y+(tp.y-fp.y)*eased, bz=fp.z+(tp.z-fp.z)*eased;
-      var wob = 1+Math.sin(t*0.8+i*GA*2)*0.05*spec.wobble;
+      var wob = 1+Math.sin(o.t*0.8+i*GA*2)*0.05*spec.wobble;
       var x1=bx*wob, y1=by*wob, z1=bz*wob;
       var xr=x1*cosR+z1*sinR, zr=-x1*sinR+z1*cosR;
-      var scale = 1/(1+zr/(R*2.4));
+      var scale = 1/(1+zr/(o.R*2.4));
       proj.push({x:cxp+xr*scale, y:cyp+y1*scale, s:scale, z:zr});
     }
     proj.sort(function(a,b){return a.z-b.z;});
@@ -287,11 +297,10 @@ document.querySelectorAll('canvas.orb').forEach(function(cv){
       if(a.z>0 && b.z>0){ cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(b.x,b.y); cx.stroke(); }
     }
     cx.globalCompositeOperation='source-over';
-    if(!reduce) requestAnimationFrame(frame);
   }
-  resize(); frame();
-  addEventListener('resize', function(){ w=0; }, {passive:true});
-});
+  if(!reduce && orbItems.length) requestAnimationFrame(orbFrame);
+}
+if(orbItems.length) orbFrame();
 
 // ═══ WORLD OPEN/CLOSE — click the orb or the label to reveal the tools ═══
 document.querySelectorAll('.world').forEach(function(sec){
