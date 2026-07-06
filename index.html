@@ -130,13 +130,30 @@ var ALB_SHAPES=[
   4,   // EM II — orbitals, polyrhythm orbiting back
   7,   // Rent the Click — lorenz, AI hears it inverted
   9,   // Cheese Receipt — tree, Turing's garden
-  15,  // Nobody Asked the Dog — blackhole, the gravity of intimacy
+  2,   // Nobody Asked the Dog — torus, the steady unbroken hum of just staying, no question asked
   5,   // Twelve Bullet Points — primes, distilled
   6,   // Gospel for AI — möbius, the recognition loop
   8,   // First Lock — galaxy, sfumato edges
   12,  // Butler's Tray — supernova, letting go is an explosion
   3,   // Tuesday — wave, things move forward
   14   // hm.<3 — heart, the weight of almost
+];
+// anagramusic — the 13 locked bonus beats (indices 33-45, continuing the same index space).
+// Each gets its own real shape, not a repeat of whatever's next in line.
+var BEAT_SHAPES=[
+  7,   // Paast That Drop. — lorenz, raw unfiltered chaos, a real take not a polished one
+  2,   // Runnin Right, now. — torus, the kit chasing itself in a continuous loop
+  11,  // Artifact Drop, Toe. — tesseract, the glitch as a 4D wireframe error, the artifact IS the shape
+  0,   // Run-Out Groove — spiral, literally the vinyl run-out groove spiraling inward
+  8,   // Get In Here — galaxy, jazz orchestra spread across many arms
+  4,   // Get In There — orbitals, the v2 — same family, different energy shell
+  6,   // Midnight Echoes — möbius, an echo is a loop that returns changed
+  9,   // Racks on Racks — tree, stacking is just branching turned sideways
+  3,   // Long Way Home — wave, lo-fi warmth, a gentle traveling wave
+  15,  // Collapsed Runout — blackhole, the groove giving in to its own gravity
+  10,  // Gentrified Anna Marcy — klein, the same neighborhood turned inside out, no clean outside left
+  14,  // Right There Mourne — heart, the weight of knowing, grief lives here
+  5    // Dank Ass Meme — primes, the real signal hiding inside internet noise
 ];
 // ═══════════════════════════════════════════════════════════
 // SPECTRAL ENGINE — WebGL
@@ -209,8 +226,9 @@ var homeFrame=document.querySelector('.frame'),fx=0,fy=0,fvx=0,fvy=0,frot=0,frv=
 var bendAmt=0,kickDone=[-1,-1,-1],flashMorph=false;
 var KICKS=[9,20,24]; // wide hit + big kicks that shake the page
 function dSongTime(){var id=isAlbumMode()?'alb':'cdr';var e=document.getElementById(id);return(e&&!e.paused&&!isNaN(e.currentTime))?e.currentTime:-1;}
+function shapeForIdx(i){ return i<ALB_SHAPES.length ? ALB_SHAPES[i] : (BEAT_SHAPES[(i-ALB_SHAPES.length)%BEAT_SHAPES.length]||0); }
 function dSongShape(ct){
-  if(isAlbumMode()){flashMorph=false;return ALB_SHAPES[Math.min(window._albIdx||0,ALB_SHAPES.length-1)];}
+  if(isAlbumMode()){flashMorph=false;return shapeForIdx(window._albIdx||0);}
   // the spoken count lands on each word: three 121.20 · two 121.90 · one 122.46 · lock 122.92 → detonate 123.414
   if(ct>=121.20&&ct<123.414){flashMorph=true;return ct<121.90?12:ct<122.46?7:ct<122.92?11:15;}
   flashMorph=false;var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;
@@ -725,7 +743,7 @@ render();
   var frame=document.getElementById('art-frame');
   // one song, randomly chosen per page load, paired with its shape, waiting —
   // not the entire album committed on the first stray tap, and never the same open twice
-  var idx = (window.RADIO && window.RADIO.list && window.RADIO.list.length) ? Math.floor(Math.random()*window.RADIO.list.length) : 0;
+  var idx = (window.RADIO && window.RADIO.list && window.RADIO.list.length) ? Math.floor(Math.random()*totalTracks()) : 0;
   window._albIdx=idx;
 
   // gallery art per track — one painting per song, intentional
@@ -789,16 +807,34 @@ render();
     },400);
   }
 
+  // combined index space: 0..32 = the free 33-track album, 33..45 = the 13 locked
+  // anagramusic bonus beats. Same pool, same shape system — the paywall is enforced
+  // at the moment of play, not by hiding these tracks from the rotation.
+  var LINK_ALBUM='https://buy.stripe.com/fZu00jfy05ctdNz1zGfIs0g';
+  function isFreeDay(){ var d=new Date().getDate(); return d===1||d===3||d===7; }
+  function isUnlocked(){ try{ return !!JSON.parse(localStorage.getItem('gump_unlocks')||'{}').all; }catch(e){ return false; } }
+  function totalTracks(){ return (window.RADIO&&window.RADIO.list?window.RADIO.list.length:0) + (window.RADIO&&window.RADIO.beats?window.RADIO.beats.length:0); }
+  function trackForIdx(i){
+    var list=window.RADIO.list, beats=window.RADIO.beats||[];
+    if(i<list.length) return {t:list[i], locked:false, src:window.RADIO.cdn+list[i].f};
+    var b=beats[(i-list.length)%beats.length];
+    return {t:b, locked:!!b.locked, src:b.f};
+  }
   function load(i){
     if(!window.RADIO||!alb) return;
-    var list=window.RADIO.list;
-    var track=list[i%list.length];
-    idx=i%list.length;
+    var n=totalTracks(); if(!n) return;
+    i=((i%n)+n)%n;
+    var entry=trackForIdx(i);
+    if(entry.locked && !isFreeDay() && !isUnlocked()){
+      sessionStorage.setItem('gump_album_pend',JSON.stringify({ts:Date.now()}));
+      location.href=LINK_ALBUM; // same unlock flow as /radio/ — consistent, not a new pattern
+      return;
+    }
+    idx=i;
     window._albIdx=idx;
-    var src=window.RADIO.cdn+track.f;
-    alb.src=src; alb.load();
+    alb.src=entry.src; alb.load();
     alb.play().catch(function(){});
-    if(rd) rd.textContent=track.t+' — '+track.s;
+    if(rd) rd.textContent=entry.t.t+' — '+entry.t.s;
     loadArt(idx);
   }
 
@@ -829,8 +865,8 @@ render();
   if(localStorage.getItem('gump_mode')==='math') setMode(false,false); else setMode(true,false);
   // waiting-room readout — name what's queued up before anyone touches anything
   if(rd && window.RADIO && window.RADIO.list && document.body.classList.contains('point-mode')){
-    var _q = window.RADIO.list[idx];
-    if(_q) rd.textContent = _q.t+' — '+_q.s+' · click to begin';
+    var _q = trackForIdx(idx);
+    if(_q&&_q.t) rd.textContent = _q.t.t+' — '+_q.t.s+(_q.locked?' 🔒':'')+' · click to begin';
   }
   // one tap into the music — gesture-gated, so the music + visual slide in every single time
   (function(){
