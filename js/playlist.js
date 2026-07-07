@@ -27,7 +27,7 @@ window.RADIO=(function(){
     {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3",page:"emergence",url:"/research/emergence/"},
     {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3",page:"e7-theorem",url:"/research/e7-theorem/"},
     {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/",lead:"my daughter",kids:true},
-    {t:"Thank You, Echo",s:"the reply that came back",f:J+"thank_you_echo.mp3"},
+    {t:"Thank You, Echo",s:"the reply that came back",f:J+"thank_you_echo.mp3",page:"circuit-acid",url:"/gallery/circuit-acid.html"},
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
     {t:"Gap Breath",s:"the trail",f:J+"gap_breath_prime.mp3",page:"trail",url:"/trail/"},

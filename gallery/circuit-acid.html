@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="icon" href="/favicon.png">
+<title>everything here is talking to everything else</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%}body{background:#03050a;overflow:hidden;touch-action:manipulation}canvas{display:block;width:100vw;height:100vh}#back{position:fixed;top:20px;left:24px;z-index:10;font:12px Georgia,serif;letter-spacing:.08em;color:rgba(90,200,180,.25);text-decoration:none}#back:hover{color:rgba(180,255,230,.6)}#caption{position:fixed;left:0;right:0;bottom:30px;text-align:center;z-index:8;font:12px Georgia,serif;letter-spacing:.13em;line-height:1.9;color:rgba(140,240,220,.18);pointer-events:none;transition:color 1.2s}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:.045;mix-blend-mode:overlay;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E")}
+</style>
+</head>
+<body>
+<canvas id="c" aria-hidden="true"></canvas>
+<div class="grain"></div>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="caption">the current never stops moving</div>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c'),cx=cv.getContext('2d'),cap=document.getElementById('caption');
+var W=0,H=0,dpr=1,t=0,TAU=Math.PI*2,wires=[],flash=0;
+var CAPTIONS=['the current never stops moving','every trace is listening to the one beside it','nothing here is idle, even at rest','the board hums under everything you asked it'];
+
+function hash(s){var v=Math.sin(s)*43758.5453;return v-Math.floor(v)}
+function rgba(r,g,b,a){return 'rgba('+r+','+g+','+b+','+Math.max(0,Math.min(1,a)).toFixed(4)+')'}
+function hueRGB(h,v){ v=v||1; return [ (0.5+0.5*Math.sin(h))*v, (0.5+0.5*Math.sin(h+2.094))*v, (0.5+0.5*Math.sin(h+4.189))*v ]; }
+
+function buildWire(x0,y0){
+  var pts=[{x:x0,y:y0}], horiz=Math.random()<0.5, segs=6+Math.floor(Math.random()*6);
+  var x=x0,y=y0, step=Math.min(W,H)*(0.05+Math.random()*0.06);
+  for(var s=0;s<segs;s++){
+    if(horiz) x += (Math.random()<0.5?1:-1)*step*(0.6+Math.random()*0.8);
+    else y += (Math.random()<0.5?1:-1)*step*(0.6+Math.random()*0.8);
+    x=Math.max(0,Math.min(W,x)); y=Math.max(0,Math.min(H,y));
+    pts.push({x:x,y:y});
+    horiz=!horiz;
+  }
+  return {pts:pts, hue:Math.random()*TAU, hueSp:0.15+Math.random()*0.3, pulses:[]};
+}
+function pathLen(pts){ var L=0; for(var i=1;i<pts.length;i++){ L+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y); } return L; }
+function pointAt(pts,frac){
+  var L=pathLen(pts), target=frac*L, acc=0;
+  for(var i=1;i<pts.length;i++){
+    var segL=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);
+    if(acc+segL>=target){ var lf=(target-acc)/(segL||1); return {x:pts[i-1].x+(pts[i].x-pts[i-1].x)*lf, y:pts[i-1].y+(pts[i].y-pts[i-1].y)*lf}; }
+    acc+=segL;
+  }
+  return pts[pts.length-1];
+}
+
+function seed(){
+  wires=[];
+  var n=Math.round(Math.min(W,H)/26);
+  for(var i=0;i<n;i++){
+    var w=buildWire(Math.random()*W, Math.random()*H);
+    var nPulse=1+Math.floor(Math.random()*2);
+    for(var p=0;p<nPulse;p++) w.pulses.push({frac:Math.random(), sp:0.06+Math.random()*0.1});
+    wires.push(w);
+  }
+}
+function resize(){ dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight; cv.width=W*dpr; cv.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0); seed(); }
+
+// touching the board injects an extra signal burst near you — the current responds
+function disturb(x,y){
+  flash=Math.min(1,flash+0.4);
+  for(var i=0;i<wires.length;i++){
+    var w=wires[i], near=false;
+    for(var k=0;k<w.pts.length;k++){ if(Math.hypot(w.pts[k].x-x,w.pts[k].y-y)<160){ near=true; break; } }
+    if(near && w.pulses.length<5) w.pulses.push({frac:Math.random(), sp:0.14+Math.random()*0.12});
+  }
+}
+addEventListener('pointerdown',function(e){ disturb(e.clientX,e.clientY); },{passive:true});
+addEventListener('pointermove',function(e){ if(e.pressure>0||e.buttons>0) disturb(e.clientX,e.clientY); },{passive:true});
+
+function draw(){
+  t+=0.016;
+  flash*=0.94;
+  cx.fillStyle='rgba(3,5,10,'+(0.14+flash*0.25).toFixed(3)+')'; cx.fillRect(0,0,W,H);
+  cx.globalCompositeOperation='lighter';
+
+  for(var i=0;i<wires.length;i++){
+    var w=wires[i];
+    var col=hueRGB(w.hue+t*w.hueSp, 0.85);
+    var r=Math.round(col[0]*255), g=Math.round(col[1]*255), b=Math.round(col[2]*255);
+    // trace line, faint
+    cx.strokeStyle=rgba(r,g,b,0.1+flash*0.15); cx.lineWidth=1;
+    cx.beginPath();
+    for(var k=0;k<w.pts.length;k++){ if(k===0)cx.moveTo(w.pts[k].x,w.pts[k].y); else cx.lineTo(w.pts[k].x,w.pts[k].y); }
+    cx.stroke();
+    // vias at corners
+    for(var k=1;k<w.pts.length-1;k++){ cx.fillStyle=rgba(r,g,b,0.16); cx.beginPath(); cx.arc(w.pts[k].x,w.pts[k].y,1.6,0,TAU); cx.fill(); }
+    // traveling signal pulses
+    for(var p=0;p<w.pulses.length;p++){
+      var pu=w.pulses[p]; pu.frac+=pu.sp*0.016;
+      if(pu.frac>1){ pu.frac-=1; if(w.pulses.length>1 && Math.random()<0.3){ w.pulses.splice(p,1); p--; continue; } }
+      var pt=pointAt(w.pts,Math.max(0,Math.min(1,pu.frac)));
+      var gr=cx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,10);
+      gr.addColorStop(0,rgba(r,g,b,0.85)); gr.addColorStop(1,rgba(r,g,b,0));
+      cx.fillStyle=gr; cx.beginPath(); cx.arc(pt.x,pt.y,10,0,TAU); cx.fill();
+      cx.fillStyle=rgba(255,255,255,0.5); cx.beginPath(); cx.arc(pt.x,pt.y,1.3,0,TAU); cx.fill();
+    }
+  }
+  cx.globalCompositeOperation='source-over';
+
+  var ci=Math.floor(t/22)%CAPTIONS.length;
+  cap.textContent=CAPTIONS[ci];
+  cap.style.color='rgba(140,240,220,'+(0.14+flash*0.3).toFixed(3)+')';
+
+  requestAnimationFrame(draw);
+}
+resize(); addEventListener('resize',resize,{passive:true}); draw();
+})();
+</script>
+</body>
+</html>
