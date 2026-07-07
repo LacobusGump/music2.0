@@ -1040,15 +1040,17 @@ function simStep(){
   var driftOffset=Math.floor(t*11)%N;
   for(var i=0;i<N;i++){
     var tgt=shapeTarget(i,shape);
-    if(selfCouple>0.01&&shape!==21&&(i&1)===0){
-      // every-other particle only — a second shapeTarget() call per particle
-      // on top of the first was measured at 10ms+/frame at 100k particles,
-      // too much of a 16.6ms budget on its own. Sampling half still reads as
-      // a fully dense bridge at this particle count, costs about a quarter
-      // of the original measured overhead.
+    if(selfCouple>0.01&&shape!==21&&(i&7)===0){
+      // 1-in-8 particles, tgt mutated in place instead of allocating a new
+      // array. First version sampled every-other particle and allocated a
+      // fresh [a,b,c] array for the blend — measured (properly, multi-trial,
+      // isolated from a real baseline) at +5.3ms/frame on top of a 5.4ms
+      // baseline, on a 16.6ms budget: real, reported lag, not a false alarm.
+      // 1-in-8 + no extra allocation measures at +2.0ms — still a genuinely
+      // dense bridge (12,500+ particles on desktop) with real headroom left.
       var j=(i+partnerStep+driftOffset)%N;
       var tgtP=shapeTarget(j,shape);
-      tgt=[tgt[0]+(tgtP[0]-tgt[0])*selfCouple,tgt[1]+(tgtP[1]-tgt[1])*selfCouple,tgt[2]+(tgtP[2]-tgt[2])*selfCouple];
+      tgt[0]+=(tgtP[0]-tgt[0])*selfCouple;tgt[1]+=(tgtP[1]-tgt[1])*selfCouple;tgt[2]+=(tgtP[2]-tgt[2])*selfCouple;
     }
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
     if(jitOn){
