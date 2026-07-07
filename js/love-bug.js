@@ -21,7 +21,7 @@
     function isUnlocked(){
       try{
         var u=JSON.parse(localStorage.getItem('gump_unlocks')||'{}');
-        if(u.all||u[fslug]) return true;
+        if((window.gumpUnlockAll&&window.gumpUnlockAll())||u[fslug]) return true;
       }catch(e){}
       if(!!localStorage.getItem('gump_harmonia') && HARMONIA_PAGES[slug]) return true;
       return false;
