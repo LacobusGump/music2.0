@@ -250,13 +250,16 @@ varying float vAlpha;
 void main(){
   vec4 p=uMVP*vec4(aPos,1.0);
   gl_Position=p;
-  gl_PointSize=clamp(aSize*uScale/max(1.0,p.w),1.4,9.5);
   vCol=aCol;
-  // Depth fade
-  // Depth: near particles bright + bigger, far particles dim + smaller
+  // Depth: near particles bright + bigger, far particles dim + smaller.
+  // The depth multiplier now feeds INTO the size before the clamp, not after —
+  // it used to apply after clamping, so a near particle could reach ~2x the
+  // clamp ceiling (up to ~19px) and wash out into a soft glowing blob wherever
+  // points overlapped, which is what was actually reading as "blurry."
   float depthFade=clamp(1.5/max(0.5,p.w),0.1,1.0);
   vAlpha=depthFade;
-  gl_PointSize*=0.5+depthFade*1.5; // near=2x size, far=0.5x
+  float rawSize=(aSize*uScale/max(1.0,p.w))*(0.55+depthFade*1.15);
+  gl_PointSize=clamp(rawSize,1.2,8.0);
 }`;
 
 var fsrc=`
@@ -268,7 +271,7 @@ void main(){
   vec2 c=gl_PointCoord-0.5;
   float d=length(c);
   if(d>0.5)discard;
-  float a=1.0-smoothstep(0.30,0.5,d); // solid bright core, thin glow edge — not a soft blur disc
+  float a=1.0-smoothstep(0.40,0.5,d); // hard bright disc, only the outer rim feathers
   gl_FragColor=vec4(vCol,vAlpha*uBright*a);
 }`;
 
