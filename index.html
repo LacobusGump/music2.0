@@ -1180,11 +1180,20 @@ render();
     window._albIdx=idx;
     window._curTrackFile=entry.t.f.split('/').pop();
     alb.src=entry.src; alb.load();
-    alb.play().catch(function(){});
+    alb.play().then(function(){
+      // the whole point: once a song is actually live, the page becomes the
+      // visual immediately, not after 4s of nobody touching the mouse
+      document.body.classList.add('playing');
+      document.body.classList.remove('presenter-active');
+    }).catch(function(){});
     if(rd) rd.textContent=entry.t.t+' — '+entry.t.s;
   }
 
-  if(alb) alb.addEventListener('ended',function(){load(idx+1);});
+  if(alb){
+    alb.addEventListener('ended',function(){load(idx+1);});
+    alb.addEventListener('pause',function(){ document.body.classList.remove('playing'); });
+    alb.addEventListener('play',function(){ document.body.classList.add('playing'); document.body.classList.remove('presenter-active'); });
+  }
 
   function setMode(point,start){
     document.body.classList.toggle('point-mode',point);
@@ -1225,12 +1234,23 @@ render();
   })();
   window._setMode=setMode; // the-show (?show) starts the album from track 0 on the begin gesture
 
-  // Presenter: hidden until cursor moves, fades out after 4s of stillness
+  // Presenter: hidden until cursor moves, fades out after 4s of stillness.
+  // Once a song is actually playing, this used to fire on ANY mouse movement —
+  // meaning every time someone checked the page (moved the mouse to screenshot
+  // it, to scroll, to do anything at all) the UI chrome came back and covered
+  // the immersive visual, making "is this actually full-page now" impossible to
+  // verify by looking, since looking itself re-triggered the thing being checked
+  // for. Once playing, only a deliberate move to the top edge reveals it again —
+  // incidental movement elsewhere on the page no longer un-hides the frame.
   (function(){
     var hideTimer;
     var bd=document.body;
-    function show(){
+    function show(e){
       if(!bd.classList.contains('point-mode')) return;
+      if(bd.classList.contains('playing')){
+        var y=(e&&(e.clientY!=null?e.clientY:(e.touches&&e.touches[0]?e.touches[0].clientY:null)));
+        if(y==null||y>90) return; // deliberate move to the top edge only, while a song is live
+      }
       bd.classList.add('presenter-active');
       clearTimeout(hideTimer);
       hideTimer=setTimeout(function(){bd.classList.remove('presenter-active');},4000);
