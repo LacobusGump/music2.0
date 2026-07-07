@@ -663,8 +663,8 @@ function buildPipeTubeGeometry(){
 // curve's tangent swings past vertical. Reuses the tubePos/tubeNorm/tubeCol
 // buffers and tubeProg shader already built for Pipes — same lit-triangle
 // technique, different path per shape.
-function buildTubeAlongPath(pts,radius,sides,colFn){
-  var n=pts.length,w=0;
+function buildTubeAlongPath(pts,radius,sides,colFn,startW){
+  var n=pts.length,w=startW||0;
   var ringPX=new Array(n),ringPY=new Array(n),ringPZ=new Array(n),ringNX=new Array(n),ringNY=new Array(n),ringNZ=new Array(n);
   var nx=0,ny=1,nz=0,bx=0,by=0,bz=0,haveFrame=false;
   for(var i=0;i<n;i++){
@@ -707,6 +707,43 @@ function buildTubeAlongPath(pts,radius,sides,colFn){
     }
   }
   tubeVertCount=w;
+  return w; // callers building a multi-segment companion (DNA's two backbones,
+            // Tesseract's edges, etc.) chain calls: w=buildTubeAlongPath(a,...,0);
+            // w=buildTubeAlongPath(b,...,w); tubeVertCount=w;
+}
+
+// Shared GL boilerplate for drawing whatever's currently in tubePos/tubeNorm/
+// tubeCol (built by buildTubeAlongPath or buildPipeTubeGeometry just before).
+// Every companion shape calls this the same way — only the geometry differs.
+function drawCompanionMesh(){
+  gl.useProgram(tubeProg);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.disable(gl.BLEND);
+  gl.uniformMatrix4fv(tUMVP,false,mvp);
+  gl.uniform3f(tULightDir,0.5,0.85,0.35);
+  gl.uniform3f(tUEyePos,0,0,camDist*4);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,tubePosBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,tubePos.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(tAPos);
+  gl.vertexAttribPointer(tAPos,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,tubeNormBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,tubeNorm.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(tANorm);
+  gl.vertexAttribPointer(tANorm,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,tubeColBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,tubeCol.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(tACol);
+  gl.vertexAttribPointer(tACol,3,gl.FLOAT,false,0,0);
+
+  gl.drawArrays(gl.TRIANGLES,0,tubeVertCount);
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  gl.useProgram(prog);
 }
 
 // Shape 0 companion — The Spiral's solid backbone. The particle cloud is a
@@ -1710,40 +1747,11 @@ function render(){
     if(shape===0 && morphT>=1){
       // The Spiral's companion — a real solid ribbon drawn FIRST, underneath
       // the particle cloud (not a replacement, both are on screen at once).
-      // This is the pattern every future bespoke shape reuses: its own
-      // centerline path through buildTubeAlongPath(), same lit-mesh program.
-      var _pcol=PALETTES[0];
+      var _pcol0=PALETTES[0];
       buildTubeAlongPath(spiralCompanionPath(),0.045+audioIntensity*0.02,8,function(u){
-        var br=0.55+u*0.55; return [_pcol[0]*br,_pcol[1]*br,_pcol[2]*br];
+        var br=0.55+u*0.55; return [_pcol0[0]*br,_pcol0[1]*br,_pcol0[2]*br];
       });
-      gl.useProgram(tubeProg);
-      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-      gl.clear(gl.DEPTH_BUFFER_BIT);
-      gl.disable(gl.BLEND);
-      gl.uniformMatrix4fv(tUMVP,false,mvp);
-      gl.uniform3f(tULightDir,0.5,0.85,0.35);
-      gl.uniform3f(tUEyePos,0,0,camDist*4);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER,tubePosBuf);
-      gl.bufferData(gl.ARRAY_BUFFER,tubePos.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
-      gl.enableVertexAttribArray(tAPos);
-      gl.vertexAttribPointer(tAPos,3,gl.FLOAT,false,0,0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER,tubeNormBuf);
-      gl.bufferData(gl.ARRAY_BUFFER,tubeNorm.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
-      gl.enableVertexAttribArray(tANorm);
-      gl.vertexAttribPointer(tANorm,3,gl.FLOAT,false,0,0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER,tubeColBuf);
-      gl.bufferData(gl.ARRAY_BUFFER,tubeCol.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
-      gl.enableVertexAttribArray(tACol);
-      gl.vertexAttribPointer(tACol,3,gl.FLOAT,false,0,0);
-
-      gl.drawArrays(gl.TRIANGLES,0,tubeVertCount);
-
-      gl.disable(gl.DEPTH_TEST);
-      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
-      gl.useProgram(prog);
+      drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
     gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
