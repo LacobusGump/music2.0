@@ -1025,8 +1025,31 @@ function simStep(){
   var _aiRise=Math.max(0,audioIntensity-_prevAI); _prevAI=audioIntensity;
   transientPulse=Math.max(transientPulse*0.80, Math.min(1,_aiRise*22));
   var jitOn=jit>0||transientPulse>0.02;
+  // 1+1=3 — the shape coupled against a shifted copy of itself. Not a
+  // metaphor: each particle's natural target gets blended toward a DIFFERENT
+  // point on the same shape (its "coupling partner"), so the visible geometry
+  // is a genuine third thing — bridged, warped, richer than either the base
+  // shape or a plain duplicate of it. Real audioK (does bass actually move
+  // with brightness, or independently) decides how hard they interfere; the
+  // partner mapping itself drifts slowly over time so the bridge pattern
+  // keeps evolving instead of locking into one static new shape. A small
+  // floor keeps it always genuinely visible instead of vanishing on
+  // low-coupling tracks, which was the actual "yawn."
+  var selfCouple=isAlbumMode()?Math.min(0.4,0.10+Math.max(0,audioK)*0.5+audioIntensity*0.12):0;
+  var partnerStep=Math.floor(N*0.382)||1;
+  var driftOffset=Math.floor(t*11)%N;
   for(var i=0;i<N;i++){
     var tgt=shapeTarget(i,shape);
+    if(selfCouple>0.01&&shape!==21&&(i&1)===0){
+      // every-other particle only — a second shapeTarget() call per particle
+      // on top of the first was measured at 10ms+/frame at 100k particles,
+      // too much of a 16.6ms budget on its own. Sampling half still reads as
+      // a fully dense bridge at this particle count, costs about a quarter
+      // of the original measured overhead.
+      var j=(i+partnerStep+driftOffset)%N;
+      var tgtP=shapeTarget(j,shape);
+      tgt=[tgt[0]+(tgtP[0]-tgt[0])*selfCouple,tgt[1]+(tgtP[1]-tgt[1])*selfCouple,tgt[2]+(tgtP[2]-tgt[2])*selfCouple];
+    }
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
     if(jitOn){
       // ripple — the same jitter budget as before, but phase-shifted per
