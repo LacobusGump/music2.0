@@ -949,11 +949,20 @@ document.querySelectorAll('.door-glyph, .door-preview').forEach(function(cv){
   var it = {cv:cv, cx:cv.getContext('2d'), kind:kind, role:role, col:col, dpr:dpr, w:0, h:0, t:Math.random()*10};
   if(role==='glyph'){
     if(kind==='research'){
+      // geodesic web — points sorted by angle so neighbor-connections form a real
+      // enclosing net (not random scatter), plus radial spokes from center
       it.nodes = [];
-      for(var i=0;i<9;i++){ var a=i*2.399963229728653, r=0.28+((i*13)%37)/37*0.62; it.nodes.push({a:a, r:r, ph:Math.random()*6.283, sp:0.15+Math.random()*0.15}); }
+      var nR=12;
+      for(var i=0;i<nR;i++){ var a=i*2.399963229728653; it.nodes.push({a0:a, rBase:0.35+((i*13)%37)/37*0.55, ph:Math.random()*6.283, sp:0.08+Math.random()*0.1, wob:0.5+Math.random()*0.5}); }
     } else if(kind==='tools'){
+      // Lissajous phase-portrait — a live oscilloscope trace of actual Kuramoto coupling,
+      // not dots on a ring. Shape simplifies as the oscillators lock into sync.
       it.osc = [];
       for(var i=0;i<6;i++){ it.osc.push({ph:Math.random()*6.283, base: i*2*Math.PI/6}); }
+      it.trail = [];
+    } else if(kind==='harmonia'){
+      // breathing polar voice-contour — a closed, organic membrane, not flat bars
+      it.harm = [{f:2,amp:0.14,ph:Math.random()*6.283,sp:0.5},{f:3,amp:0.09,ph:Math.random()*6.283,sp:0.7},{f:5,amp:0.05,ph:Math.random()*6.283,sp:0.9}];
     }
   } else { // preview — a genuine peek at what that destination actually looks like
     if(kind==='research'){
@@ -979,84 +988,99 @@ document.querySelectorAll('.door-glyph, .door-preview').forEach(function(cv){
 function rgba(c,a){ return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a.toFixed(3)+')'; }
 
 function drawResearch(it){
-  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, R=Math.min(w,h)*0.42, col=it.col;
+  // geodesic web — a real enclosing net, not scattered dots. Points sorted by
+  // angle so ring-connections trace an honest hull; radial spokes read as "everything
+  // ties back to a center." The technique IS the meaning: a web of knowledge.
+  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, R=Math.min(w,h)*0.46, col=it.col;
   cx.clearRect(0,0,w,h);
   cx.globalCompositeOperation='lighter';
   var pts=[];
   for(var i=0;i<it.nodes.length;i++){
     var n=it.nodes[i];
-    var ang = n.a + it.t*n.sp*0.3;
-    var rad = R*n.r*(0.85+0.15*Math.sin(it.t*0.6+n.ph));
-    pts.push({x:cxp+Math.cos(ang)*rad, y:cyp+Math.sin(ang)*rad});
+    var ang=n.a0+it.t*n.sp*0.25;
+    var rad=R*n.rBase*(0.88+0.12*Math.sin(it.t*0.5*n.wob+n.ph));
+    pts.push({x:cxp+Math.cos(ang)*rad,y:cyp+Math.sin(ang)*rad,ang:ang});
   }
-  // faint connecting lines between near neighbors
-  cx.strokeStyle = rgba(col,0.22); cx.lineWidth = 0.7;
-  for(var i=0;i<pts.length;i++){
-    for(var j=i+1;j<pts.length;j++){
-      var dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.sqrt(dx*dx+dy*dy);
-      if(d < R*0.85){ cx.globalAlpha = Math.max(0,1-d/(R*0.85))*0.5; cx.beginPath(); cx.moveTo(pts[i].x,pts[i].y); cx.lineTo(pts[j].x,pts[j].y); cx.stroke(); }
-    }
-  }
-  cx.globalAlpha = 1;
-  for(var i=0;i<pts.length;i++){
-    var br = 0.5+0.5*Math.sin(it.t*0.8+i*1.3);
-    var g = cx.createRadialGradient(pts[i].x,pts[i].y,0,pts[i].x,pts[i].y,4+br*3);
-    g.addColorStop(0, rgba(col,0.7*br)); g.addColorStop(1, rgba(col,0));
-    cx.fillStyle=g; cx.beginPath(); cx.arc(pts[i].x,pts[i].y,4+br*3,0,6.283); cx.fill();
-    cx.fillStyle = rgba(col, 0.8); cx.beginPath(); cx.arc(pts[i].x,pts[i].y,1.1,0,6.283); cx.fill();
+  // ring edges — connect neighbors in angular order, tracing a real net silhouette
+  cx.strokeStyle=rgba(col,0.32); cx.lineWidth=0.8;
+  cx.beginPath();
+  for(var i=0;i<pts.length;i++){ var p=pts[i]; if(i===0)cx.moveTo(p.x,p.y); else cx.lineTo(p.x,p.y); }
+  cx.closePath(); cx.stroke();
+  // cross-braces — every point also ties to the one across the web, so it doesn't read as just a ring
+  cx.strokeStyle=rgba(col,0.14); cx.lineWidth=0.6;
+  var n=pts.length;
+  for(var i=0;i<n;i++){ var q=pts[(i+Math.floor(n/2))%n]; cx.beginPath(); cx.moveTo(pts[i].x,pts[i].y); cx.lineTo(q.x,q.y); cx.stroke(); }
+  // spokes to center — everything ties back
+  cx.strokeStyle=rgba(col,0.1); cx.lineWidth=0.6;
+  for(var i=0;i<n;i++){ cx.beginPath(); cx.moveTo(cxp,cyp); cx.lineTo(pts[i].x,pts[i].y); cx.stroke(); }
+  // nodes on top
+  for(var i=0;i<n;i++){
+    var br=0.5+0.5*Math.sin(it.t*0.8+i*1.3);
+    var g=cx.createRadialGradient(pts[i].x,pts[i].y,0,pts[i].x,pts[i].y,3.5+br*2.6);
+    g.addColorStop(0,rgba(col,0.7*br)); g.addColorStop(1,rgba(col,0));
+    cx.fillStyle=g; cx.beginPath(); cx.arc(pts[i].x,pts[i].y,3.5+br*2.6,0,6.283); cx.fill();
+    cx.fillStyle=rgba(col,0.85); cx.beginPath(); cx.arc(pts[i].x,pts[i].y,1,0,6.283); cx.fill();
   }
   cx.globalCompositeOperation='source-over';
 }
 
 function drawTools(it){
-  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, R=Math.min(w,h)*0.36, col=it.col;
-  cx.clearRect(0,0,w,h);
-  cx.globalCompositeOperation='lighter';
-  // Kuramoto-lite: phases drift toward each other, occasionally desync — coupled oscillators, on theme
+  // live Lissajous phase-portrait — an actual oscilloscope trace of the Kuramoto
+  // coupling below, not dots on a ring. As the oscillators lock into phase, the
+  // traced curve visibly simplifies — the math IS the animation.
+  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, R=Math.min(w,h)*0.4, col=it.col;
   var meanSin=0, meanCos=0;
   for(var i=0;i<it.osc.length;i++){ meanSin+=Math.sin(it.osc[i].ph); meanCos+=Math.cos(it.osc[i].ph); }
-  var meanPh = Math.atan2(meanSin, meanCos);
-  var K = 0.02 + 0.015*Math.sin(it.t*0.15); // coupling strength itself breathes
+  var meanPh=Math.atan2(meanSin,meanCos);
+  var K=0.025+0.02*Math.sin(it.t*0.12);
+  for(var i=0;i<it.osc.length;i++){ var o=it.osc[i]; o.ph += (0.09+i*0.011) + K*Math.sin(meanPh-o.ph); }
+  // trace point: x driven by osc[0] vs osc[1], y by osc[2] vs osc[3] — a real Lissajous figure
+  var x=cxp+Math.cos(it.osc[0].ph)*R*0.5+Math.cos(it.osc[1].ph)*R*0.4;
+  var y=cyp+Math.sin(it.osc[2].ph)*R*0.5+Math.sin(it.osc[3].ph)*R*0.4;
+  it.trail.push({x:x,y:y});
+  if(it.trail.length>70) it.trail.shift();
+  // phosphor fade instead of clearRect — the trace persists and decays, oscilloscope-style
+  cx.fillStyle='rgba(10,7,6,0.16)'; cx.fillRect(0,0,w,h);
+  cx.globalCompositeOperation='lighter';
+  cx.beginPath();
+  for(var i=0;i<it.trail.length;i++){ var p=it.trail[i]; if(i===0)cx.moveTo(p.x,p.y); else cx.lineTo(p.x,p.y); }
+  cx.strokeStyle=rgba(col,0.5); cx.lineWidth=1.3; cx.stroke();
+  var head=it.trail[it.trail.length-1];
+  if(head){ var g=cx.createRadialGradient(head.x,head.y,0,head.x,head.y,7); g.addColorStop(0,rgba(col,0.9)); g.addColorStop(1,rgba(col,0)); cx.fillStyle=g; cx.beginPath(); cx.arc(head.x,head.y,7,0,6.283); cx.fill(); }
+  // the 6 oscillators themselves, small and dim, so the coupling concept stays legible
   for(var i=0;i<it.osc.length;i++){
-    var o=it.osc[i];
-    o.ph += 0.02 + K*Math.sin(meanPh-o.ph);
-    var ang = o.base + it.t*0.1;
-    var x=cxp+Math.cos(ang)*R, y=cyp+Math.sin(ang)*R;
-    var br = 0.4+0.6*(0.5+0.5*Math.cos(o.ph));
-    var rr = 2+br*2.6;
-    var g=cx.createRadialGradient(x,y,0,x,y,rr*3);
-    g.addColorStop(0, rgba(col,0.75*br)); g.addColorStop(1, rgba(col,0));
-    cx.fillStyle=g; cx.beginPath(); cx.arc(x,y,rr*3,0,6.283); cx.fill();
-    cx.fillStyle=rgba(col,0.9); cx.beginPath(); cx.arc(x,y,1.3,0,6.283); cx.fill();
+    var ang=it.osc[i].base+it.t*0.05, ox=cxp+Math.cos(ang)*R*0.94, oy=cyp+Math.sin(ang)*R*0.94;
+    cx.fillStyle=rgba(col,0.28); cx.beginPath(); cx.arc(ox,oy,1.4,0,6.283); cx.fill();
   }
-  // faint ring showing the coupling field itself
-  cx.strokeStyle = rgba(col, 0.12); cx.lineWidth=1;
-  cx.beginPath(); cx.arc(cxp,cyp,R,0,6.283); cx.stroke();
   cx.globalCompositeOperation='source-over';
 }
 
 function drawHarmonia(it){
-  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, col=it.col;
+  // breathing polar voice-contour — a closed organic membrane whose radius is a live
+  // sum of harmonics, not static bars. Reads as listening/breathing, not decoration.
+  var cx=it.cx, w=it.w, h=it.h, cxp=w/2, cyp=h/2, baseR=Math.min(w,h)*0.3, col=it.col;
   cx.clearRect(0,0,w,h);
   cx.globalCompositeOperation='lighter';
-  var breathe = 0.55+0.45*Math.sin(it.t*0.7);
-  // voice waveform — a few bars breathing together, like it's listening
-  var bars=7, bw=w*0.5/bars;
-  cx.fillStyle = rgba(col, 0.65);
-  for(var i=0;i<bars;i++){
-    var f=(i-(bars-1)/2);
-    var amp = (0.3+0.7*Math.exp(-f*f*0.35)) * breathe;
-    var barH = h*0.1 + amp*h*0.32*(0.6+0.4*Math.sin(it.t*1.3+i*0.7));
-    var x = cxp + f*bw*1.5 - bw*0.35;
-    cx.globalAlpha = 0.55+0.45*breathe;
-    cx.fillRect(x, cyp-barH/2, bw*0.7, barH);
+  var N=48, pts=[];
+  for(var i=0;i<=N;i++){
+    var a=(i/N)*6.283;
+    var r=baseR;
+    for(var k=0;k<it.harm.length;k++){ var hm=it.harm[k]; r += baseR*hm.amp*Math.sin(a*hm.f+it.t*hm.sp+hm.ph); }
+    pts.push({x:cxp+Math.cos(a)*r,y:cyp+Math.sin(a)*r});
   }
-  cx.globalAlpha=1;
-  // soft central listening pulse
-  var pr = 3+breathe*4;
-  var g=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,pr*4);
-  g.addColorStop(0, rgba(col,0.35*breathe)); g.addColorStop(1, rgba(col,0));
-  cx.fillStyle=g; cx.beginPath(); cx.arc(cxp,cyp,pr*4,0,6.283); cx.fill();
+  cx.beginPath();
+  for(var i=0;i<pts.length;i++){ if(i===0)cx.moveTo(pts[i].x,pts[i].y); else cx.lineTo(pts[i].x,pts[i].y); }
+  cx.closePath();
+  var fillG=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,baseR*1.3);
+  fillG.addColorStop(0,rgba(col,0.22)); fillG.addColorStop(1,rgba(col,0));
+  cx.fillStyle=fillG; cx.fill();
+  cx.strokeStyle=rgba(col,0.6); cx.lineWidth=1.2; cx.stroke();
+  // center listening pulse
+  var breathe=0.55+0.45*Math.sin(it.t*0.7);
+  var pr=2.5+breathe*3.5;
+  var g=cx.createRadialGradient(cxp,cyp,0,cxp,cyp,pr*3);
+  g.addColorStop(0,rgba(col,0.5*breathe)); g.addColorStop(1,rgba(col,0));
+  cx.fillStyle=g; cx.beginPath(); cx.arc(cxp,cyp,pr*3,0,6.283); cx.fill();
   cx.globalCompositeOperation='source-over';
 }
 
