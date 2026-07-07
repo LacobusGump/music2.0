@@ -665,6 +665,7 @@ function buildPipeTubeGeometry(){
 // technique, different path per shape.
 function buildTubeAlongPath(pts,radius,sides,colFn,startW){
   var n=pts.length,w=startW||0;
+  var radFn=(typeof radius==='function')?radius:function(){return radius;};
   var ringPX=new Array(n),ringPY=new Array(n),ringPZ=new Array(n),ringNX=new Array(n),ringNY=new Array(n),ringNZ=new Array(n);
   var nx=0,ny=1,nz=0,bx=0,by=0,bz=0,haveFrame=false;
   for(var i=0;i<n;i++){
@@ -685,10 +686,11 @@ function buildTubeAlongPath(pts,radius,sides,colFn,startW){
     bx=tny*nz-tnz*ny;by=tnz*nx-tnx*nz;bz=tnx*ny-tny*nx;
     ringPX[i]=new Array(sides);ringPY[i]=new Array(sides);ringPZ[i]=new Array(sides);
     ringNX[i]=new Array(sides);ringNY[i]=new Array(sides);ringNZ[i]=new Array(sides);
+    var rad=radFn(i/(n-1));
     for(var s=0;s<sides;s++){
       var ang=(s/sides)*6.28318530718,ca=Math.cos(ang),sa=Math.sin(ang);
       var rx=nx*ca+bx*sa,ry=ny*ca+by*sa,rz=nz*ca+bz*sa;
-      ringPX[i][s]=pts[i][0]+rx*radius;ringPY[i][s]=pts[i][1]+ry*radius;ringPZ[i][s]=pts[i][2]+rz*radius;
+      ringPX[i][s]=pts[i][0]+rx*rad;ringPY[i][s]=pts[i][1]+ry*rad;ringPZ[i][s]=pts[i][2]+rz*rad;
       ringNX[i][s]=rx;ringNY[i][s]=ry;ringNZ[i][s]=rz;
     }
   }
@@ -773,6 +775,29 @@ function dnaBackbonePath(strandOffset){
     path[i]=[Math.cos(tt+strandOffset)*groove,(h-0.5)*8,Math.sin(tt+strandOffset)*groove];
   }
   return path;
+}
+
+// Shape 2 companion — Torus's solid core. Unlike shape 0 (a volume fill,
+// particles at varying distance from the centerline) the torus particles all
+// sit at very nearly the SAME distance rr(u,t) from their local core point —
+// there's no distance-based "near vs far" to exploit for brightness here.
+// The real interaction instead: the companion's own thickness breathes with
+// the exact same rr formula the particle shell uses, so the solid core and
+// the particle tube visibly swell and pinch together, driven by identical
+// math, not just adjacent geometry.
+var TORUS_SEGS=240,TORUS_R=2.5;
+function torusCorePath(){
+  var path=new Array(TORUS_SEGS+1);
+  for(var i=0;i<=TORUS_SEGS;i++){
+    var u=i/TORUS_SEGS*6.28318530718+t*0.08;
+    path[i]=[TORUS_R*Math.cos(u),0,TORUS_R*Math.sin(u)];
+  }
+  return path;
+}
+function torusCoreRadius(u){
+  var uu=u*6.28318530718+t*0.08;
+  var rr=0.7+Math.sin(uu*3+t*0.4)*0.15; // exact rr(u,t) shapeTarget case 2 uses
+  return 0.05+(rr-0.55)*0.05; // thin wire, same breathing pattern at 1/6 scale
 }
 
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
@@ -1420,6 +1445,15 @@ function simStep(){
           boost1=0.45+(1-Math.abs(rungFrac-0.5)*2)*0.55;
         }
         tr[i]=Math.min(1,pal[0]*v*boost1);tg[i]=Math.min(1,pal[1]*v*boost1);tb[i]=Math.min(1,pal[2]*v*boost1);
+      } else if(shape===2){
+        // Torus: every particle sits at the same distance from its own local
+        // core point (rr applies uniformly regardless of v), so there's no
+        // near/far distinction to shade by. Instead shade by the SAME bulge
+        // pattern (sin(u*3)) the companion's own breathing radius uses — a
+        // real, shared spatial signal, not a per-particle random one.
+        var u2=fi*Math.PI*2*30;
+        var boost2=0.6+ (0.5+0.5*Math.sin(u2*3))*0.4;
+        tr[i]=Math.min(1,pal[0]*v*boost2);tg[i]=Math.min(1,pal[1]*v*boost2);tb[i]=Math.min(1,pal[2]*v*boost2);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -1789,6 +1823,15 @@ function render(){
         var br=0.6+u*0.4; return [_pcol1[0]*br,_pcol1[1]*br,_pcol1[2]*br];
       },_w1);
       tubeVertCount=_w1;
+      drawCompanionMesh();
+    }
+    if(shape===2 && morphT>=1){
+      // Torus's solid core — thickness breathes with the exact rr(u,t) the
+      // particle shell is built from (see torusCoreRadius()).
+      var _pcol2=PALETTES[2];
+      buildTubeAlongPath(torusCorePath(),torusCoreRadius,10,function(u){
+        var br=0.6+u*0.4; return [_pcol2[0]*br,_pcol2[1]*br,_pcol2[2]*br];
+      },0);
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
