@@ -800,6 +800,64 @@ function torusCoreRadius(u){
   return 0.05+(rr-0.55)*0.05; // thin wire, same breathing pattern at 1/6 scale
 }
 
+// Second companion-mesh primitive: a lit SURFACE (regular grid), for shapes
+// whose bespoke companion is a height field rather than a curve (Wave,
+// Cymatics, any interference/eigenmode pattern). Same target buffers and
+// tubeProg shader as buildTubeAlongPath — same lit-triangle technique,
+// different geometry generator. Normals via central-difference of the
+// already-sampled height grid (cheap array lookups, no extra heightFn calls).
+function buildSurfaceGrid(res,xMin,xMax,zMin,zMax,heightFn,colFn,startW){
+  var w=startW||0;
+  var dx=(xMax-xMin)/res,dz=(zMax-zMin)/res;
+  var H=new Array(res+1);
+  for(var gi=0;gi<=res;gi++){
+    H[gi]=new Array(res+1);
+    var x=xMin+gi*dx;
+    for(var gj=0;gj<=res;gj++) H[gi][gj]=heightFn(x,zMin+gj*dz);
+  }
+  function normAt(gi,gj){
+    var gil=Math.max(0,gi-1),gir=Math.min(res,gi+1);
+    var gjl=Math.max(0,gj-1),gjr=Math.min(res,gj+1);
+    var gx=(H[gir][gj]-H[gil][gj])/(((gir-gil)||1)*dx);
+    var gz=(H[gi][gjr]-H[gi][gjl])/(((gjr-gjl)||1)*dz);
+    var nx=-gx,ny=1,nz=-gz,nl=Math.hypot(nx,ny,nz)||1;
+    return [nx/nl,ny/nl,nz/nl];
+  }
+  for(var gi=0;gi<res;gi++){
+    var x0=xMin+gi*dx,x1=xMin+(gi+1)*dx;
+    for(var gj=0;gj<res;gj++){
+      var z0=zMin+gj*dz,z1=zMin+(gj+1)*dz;
+      var p00=[x0,H[gi][gj],z0],p10=[x1,H[gi+1][gj],z0],p01=[x0,H[gi][gj+1],z1],p11=[x1,H[gi+1][gj+1],z1];
+      var n00=normAt(gi,gj),n10=normAt(gi+1,gj),n01=normAt(gi,gj+1),n11=normAt(gi+1,gj+1);
+      var col=colFn(gi/res,gj/res);
+      var tris=[[p00,p10,p01,n00,n10,n01],[p10,p11,p01,n10,n11,n01]];
+      for(var ti=0;ti<2;ti++){
+        var T=tris[ti];
+        for(var vi=0;vi<3;vi++){
+          var p=T[vi],nn=T[vi+3];
+          tubePos[w*3]=p[0];tubePos[w*3+1]=p[1];tubePos[w*3+2]=p[2];
+          tubeNorm[w*3]=nn[0];tubeNorm[w*3+1]=nn[1];tubeNorm[w*3+2]=nn[2];
+          tubeCol[w*3]=col[0];tubeCol[w*3+1]=col[1];tubeCol[w*3+2]=col[2];
+          w++;
+        }
+      }
+    }
+  }
+  tubeVertCount=w;
+  return w;
+}
+
+// Shape 3 companion — Wave's exact analytic surface. Particles here sit
+// precisely ON this same interference formula (see shapeTarget case 3); the
+// companion isn't an approximation next to them, it's the literal continuous
+// function they're discrete noisy samples of.
+var WAVE_RES=44;
+function waveHeightField(x,z){
+  var d1=Math.hypot(x-1.5,z),d2=Math.hypot(x+1.5,z);
+  var wave1=Math.sin(d1*3-t*4.1),wave2=Math.sin(d2*3-t*4.1);
+  return (wave1+wave2)*(0.8+beatPulse*0.7);
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1454,6 +1512,16 @@ function simStep(){
         var u2=fi*Math.PI*2*30;
         var boost2=0.6+ (0.5+0.5*Math.sin(u2*3))*0.4;
         tr[i]=Math.min(1,pal[0]*v*boost2);tg[i]=Math.min(1,pal[1]*v*boost2);tb[i]=Math.min(1,pal[2]*v*boost2);
+      } else if(shape===3){
+        // Wave: particles sit exactly on the companion's own analytic
+        // surface, so there's no offset-from-mesh to shade by either. Shade
+        // by distance to the nearest of the two wave sources instead — the
+        // real quantity both the particle height and the companion surface
+        // are generated from.
+        var wx3=(i%316)/316*8-4,wz3=Math.floor(i/316)/316*8-4;
+        var dNear=Math.min(Math.hypot(wx3-1.5,wz3),Math.hypot(wx3+1.5,wz3));
+        var boost3=0.5+Math.max(0,1-dNear/5)*0.5;
+        tr[i]=Math.min(1,pal[0]*v*boost3);tg[i]=Math.min(1,pal[1]*v*boost3);tb[i]=Math.min(1,pal[2]*v*boost3);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -1831,6 +1899,15 @@ function render(){
       var _pcol2=PALETTES[2];
       buildTubeAlongPath(torusCorePath(),torusCoreRadius,10,function(u){
         var br=0.6+u*0.4; return [_pcol2[0]*br,_pcol2[1]*br,_pcol2[2]*br];
+      },0);
+      drawCompanionMesh();
+    }
+    if(shape===3 && morphT>=1){
+      // Wave's exact analytic surface, lit and solid, under the point cloud
+      // that's discretely sampling this same interference function.
+      var _pcol3=PALETTES[3];
+      buildSurfaceGrid(WAVE_RES,-4,4,-4,4,waveHeightField,function(u,v){
+        var br=0.55+((u+v)*0.5)*0.45; return [_pcol3[0]*br,_pcol3[1]*br,_pcol3[2]*br];
       },0);
       drawCompanionMesh();
     }
