@@ -117,7 +117,7 @@ var ALB_SHAPES=[
   7,   // Weakest K — lorenz, chaos at coupling's edge
   15,  // Gap Breath — blackhole, silence has gravity
   17,  // GCD — mystify, the Euclidean algorithm's actual billiard-ball bounce representation
-  8,   // Muse ick — galaxy, looking down from above
+  20,  // Muse ick — electric sheep, a real chaos game standing in for what a muse actually is
   9,   // Fifteen Year Counter — tree, fifteen years of growth
   10,  // Exact Frequency — klein, the geometry of precision
   3,   // Two-Ms Choir — wave, voices moving like water
@@ -305,10 +305,40 @@ var uFadeCol=gl.getUniformLocation(fadeProg,'uFadeCol');
 var quadBuf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, 1,1]),gl.STATIC_DRAW);
-var TRAIL_SHAPES={17:0.09, 18:0.14, 19:0.05}; // shape index → fade amount per frame (higher = shorter trail)
+var TRAIL_SHAPES={17:0.09, 18:0.14, 19:0.05, 20:0.045}; // shape index → fade amount per frame (higher = shorter trail)
 
 // ═══ 100,000 PARTICLES ═══
 var MOB=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);var N=MOB?32000:100000;
+
+// Electric Sheep — real chaos-game fractal flame. Persistent per-particle iteration
+// state, unlike every other shape here (which are stateless formulas of index/time).
+// Each particle IS its own point, iterated through a random affine transform plus a
+// sinusoidal variation, every frame — the actual algorithm, not an approximation of
+// what it looks like.
+var flameX=new Float32Array(N), flameY=new Float32Array(N), flameZ=new Float32Array(N);
+var flameLast=new Uint8Array(N);
+for(var _fi=0;_fi<N;_fi++){ flameX[_fi]=(Math.random()-0.5)*2; flameY[_fi]=(Math.random()-0.5)*2; }
+var FLAME_XF=[
+  {a:0.7,b:-0.3,c:0.3,d:0.6,e:0.1,f:-0.1},
+  {a:-0.5,b:0.4,c:0.4,d:0.5,e:-0.2,f:0.15},
+  {a:0.3,b:0.5,c:-0.5,d:0.3,e:0.15,f:0.1},
+  {a:0.55,b:0.0,c:0.0,d:0.55,e:-0.05,f:-0.15}
+];
+function stepFlame(){
+  for(var i=0;i<N;i++){
+    var xfIdx=(Math.random()*FLAME_XF.length)|0;
+    var xf=FLAME_XF[xfIdx];
+    var x=flameX[i], y=flameY[i];
+    var nx=xf.a*x+xf.b*y+xf.e, ny=xf.c*x+xf.d*y+xf.f;
+    var vx0=Math.sin(nx*2.0), vy0=Math.sin(ny*2.0); // sinusoidal variation — the curl, not just linear IFS
+    flameX[i]=nx*0.5+vx0*0.5;
+    flameY[i]=ny*0.5+vy0*0.5;
+    flameZ[i]+=((flameX[i]*flameY[i])*0.3-flameZ[i])*0.1;
+    flameLast[i]=xfIdx;
+    if(Math.random()<0.0006){ flameX[i]=(Math.random()-0.5)*2; flameY[i]=(Math.random()-0.5)*2; } // orbits wander/settle — reseed to stay alive
+  }
+}
+
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
 var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 var cr=new Float32Array(N),cg2=new Float32Array(N),cb=new Float32Array(N);
@@ -362,20 +392,21 @@ function updateKR(){
 }
 
 // ═══ SHAPES (same 12 as before) ═══
-var SHAPES=20;
+var SHAPES=21;
 var shape=0,morphT=1,shapeTime=0,burstT=0;
 var SHAPE_DURATION=8;
 
 var NAMES=['the spiral','helix','torus','wave','orbitals','prime spiral',
   'möbius','lorenz','galaxy','tree','klein','tesseract',
   'supernova','murmuration','heart','black hole','circuit','mystify',
-  'code rain','hyperspace'];
+  'code rain','hyperspace','electric sheep'];
 var EQNS=['golden cone — φ all the way down','backbone + rungs','(R+r·cos v)cos u','two-source interference',
   's,p,d shells','√n spiral','half-twist','σ=10 ρ=28 β=8/3',
   '4-arm log spiral','fractal branch','self-intersect','4D wireframe',
   'expanding filaments','self-organizing flock','cardioid pulse','R=1 — total phase lock',
   'Manhattan routing, 4 layers deep','5 vertices, perfectly elastic collision',
-  '54 columns, independent fall rates','fixed 3D field, perspective does the rest'];
+  '54 columns, independent fall rates','fixed 3D field, perspective does the rest',
+  'real chaos game, 4 affine maps + sinusoidal variation'];
 
 var PALETTES=[
   [.92,.64,.30],[.84,.6,.4],[.86,.55,.34],[.55,.74,.55],[.9,.62,.36],
@@ -383,7 +414,8 @@ var PALETTES=[
   [.86,.66,.46],[1,.71,.39],
   [1,.55,.2],[.95,.6,.34],[.95,.22,.32],[.62,.18,.34],
   [.4,.9,.7],[.9,.4,.8],
-  [.3,.95,.45],[.9,.85,.7]
+  [.3,.95,.45],[.9,.85,.7],
+  [.7,.5,.95]
 ];
 
 // Mystify — persistent bouncing polygon vertices, perfectly elastic collisions
@@ -631,6 +663,10 @@ function shapeTarget(i,s){
       ty=sy*spread;
       tz=4.5-depthCycle;
       break;
+    case 20: // Electric Sheep — the position IS the persistent chaos-game state.
+      // Nothing here is a function of fi or t — stepFlame() already did the real work.
+      tx=flameX[i]*2.6; ty=flameY[i]*2.6; tz=flameZ[i]*2.6;
+      break;
     default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
@@ -652,6 +688,7 @@ function simStep(){
   shapeTime+=0.016;
   if(burstT>0)burstT-=0.016;
   if(shape===17) stepMystify(); // persistent vertex physics, once per frame not per particle
+  if(shape===20) stepFlame(); // real chaos-game iteration, once per frame, all N particles
 
   // ── beat grid + lock timeline (driven by playback time, beat-accurate) ──
   var ct=dSongTime(); songOn=ct>=0;
@@ -787,6 +824,14 @@ function simStep(){
       cr[i]=0.55+0.45*Math.sin(edgeHue);
       cg2[i]=0.55+0.45*Math.sin(edgeHue+2.094);
       cb[i]=0.55+0.45*Math.sin(edgeHue+4.189);
+    } else if(shape===20){
+      // color by which transform was last applied — the real fractal-flame
+      // convention (color encodes iteration history, not position or time)
+      var xfHue=(flameLast[i]/FLAME_XF.length)*6.283+t*0.1;
+      var flameBr=0.35+audioIntensity*0.4;
+      cr[i]=flameBr*(0.5+0.5*Math.sin(xfHue));
+      cg2[i]=flameBr*(0.5+0.5*Math.sin(xfHue+2.094));
+      cb[i]=flameBr*(0.5+0.5*Math.sin(xfHue+4.189));
     } else {
       // universal audio-reactive brightness — every song gets a real, measured
       // "brighter when it's actually louder" pulse on whatever shape it's using,
