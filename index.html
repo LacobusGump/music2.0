@@ -348,6 +348,18 @@ function envSample(arr,ct,dt){
   return arr[i0]*(1-f)+arr[i0+1]*f;
 }
 var audioIntensity=0.5, audioBrightness=0.7; // live-sampled each frame from whichever track is actually playing
+// K (real cross-band coupling: does bass move with brightness, or independently?) and
+// R (real rhythmic coherence: autocorrelation strength of the low-band energy) — one
+// measured value per track, not time-varying like intensity/brightness. This is the
+// framework's own K/R, applied to the actual audio instead of asserted about it.
+var audioK=0.15, audioR=0.5, _lastKRFile=null;
+function updateKR(){
+  if(!AUDIO_ENV||!window._curTrackFile||window._curTrackFile===_lastKRFile) return;
+  var tr=AUDIO_ENV.tracks[window._curTrackFile];
+  if(!tr||typeof tr.K!=='number') return;
+  _lastKRFile=window._curTrackFile;
+  audioK=tr.K; audioR=tr.R;
+}
 
 // ═══ SHAPES (same 12 as before) ═══
 var SHAPES=20;
@@ -647,8 +659,10 @@ function simStep(){
   var _envTrack=AUDIO_ENV&&window._curTrackFile?AUDIO_ENV.tracks[window._curTrackFile]:null;
   if(songOn && isAlbumMode() && _envTrack){
     audioIntensity=envSample(_envTrack.rms,ct,AUDIO_ENV.dt); audioBrightness=envSample(_envTrack.cen,ct,AUDIO_ENV.dt);
+    updateKR();
   } else {
     audioIntensity+=(0.5-audioIntensity)*0.05; audioBrightness+=(0.7-audioBrightness)*0.05; // ease back to neutral between plays
+    audioK+=(0.15-audioK)*0.02; audioR+=(0.5-audioR)*0.02;
   }
   if(songOn){var biNow=Math.floor((ct-BEAT_T0)/BEAT_DT);if(biNow!==lastBeat){lastBeat=biNow;if(biNow>=0)beatPulse=1;}}
   beatPulse*=0.82;
@@ -725,7 +739,11 @@ function simStep(){
   var damp=burstT>0?0.97:morphT<1?0.92:0.95;
   if(nuts>0.05)damp=0.95;
   if(mosh>0.1)damp=0.965; // looser damping = particles drift free in the pit
-  var kk=k*(1+lockAnticip*2.6)*(1-mosh*0.85), jit=nuts*0.05+mosh*0.2+(isAlbumMode()?audioIntensity*0.018:0);
+  // real R (rhythmic coherence) tightens or loosens how cleanly particles snap to
+  // target — a highly-synchronized song holds its shape tighter, a low-coherence
+  // one drifts and jitters more, even outside the shapes built specifically for it
+  var kk=k*(1+lockAnticip*2.6)*(1-mosh*0.85)*(isAlbumMode()?(0.7+audioR*0.6):1);
+  var jit=nuts*0.05+mosh*0.2+(isAlbumMode()?(audioIntensity*0.018)*(1.6-audioR):0);
   for(var i=0;i<N;i++){
     var tgt=shapeTarget(i,shape);
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
@@ -773,7 +791,12 @@ function simStep(){
       // universal audio-reactive brightness — every song gets a real, measured
       // "brighter when it's actually louder" pulse on whatever shape it's using,
       // even before it gets its own bespoke visual. In album mode only.
-      var abBoost=isAlbumMode()?(1+audioIntensity*0.3):1;
+      // Real K decides what drives the pulse: high-coupling songs (bass and
+      // brightness genuinely move together) get a clean loudness-driven boost;
+      // low/negative-K songs (bands moving independently) blend in brightness
+      // too, so the visual actually decouples the way the audio does.
+      var boostSrc=audioIntensity*(0.5+audioK*0.5)+audioBrightness*(0.5-audioK*0.5);
+      var abBoost=isAlbumMode()?(1+boostSrc*0.3):1;
       cr[i]+=(Math.min(1,tr[i]*abBoost)-cr[i])*0.03;cg2[i]+=(Math.min(1,tg[i]*abBoost)-cg2[i])*0.03;cb[i]+=(Math.min(1,tb[i]*abBoost)-cb[i])*0.03;
     }
   }
