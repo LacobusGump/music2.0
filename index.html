@@ -416,6 +416,16 @@ var jitPhase=new Float32Array(N), jitFreq=new Float32Array(N), jitEdge=new Float
 for(var _ji=0;_ji<N;_ji++){ jitPhase[_ji]=Math.random()*6.283; jitFreq[_ji]=0.5+Math.random()*2.2; jitEdge[_ji]=Math.pow(Math.random(),2.4); }
 var _prevAI=0.5, transientPulse=0; // fast attack / fast decay — tracks real rises in the track's own loudness, frame to frame
 
+// Persistent (allocated once, not per-frame) buffers for this frame's shape
+// targets. The self-coupling feature originally called shapeTarget() a
+// SECOND time whenever a particle looked up its "partner" — genuinely
+// redundant, since that partner's own target gets computed anyway when the
+// main loop reaches it. Filling these once per particle and reading from
+// them for the coupling lookup means the same total shapeTarget() call
+// count as if self-coupling didn't exist at all, and zero extra per-frame
+// array allocation, instead of trading sampling density for frame time.
+var _tgtX=new Float32Array(N), _tgtY=new Float32Array(N), _tgtZ=new Float32Array(N);
+
 // GPU buffers
 var posBuf=gl.createBuffer();
 var colBuf=gl.createBuffer();
@@ -1038,21 +1048,24 @@ function simStep(){
   var selfCouple=isAlbumMode()?Math.min(0.4,0.10+Math.max(0,audioK)*0.5+audioIntensity*0.12):0;
   var partnerStep=Math.floor(N*0.382)||1;
   var driftOffset=Math.floor(t*11)%N;
-  for(var i=0;i<N;i++){
-    var tgt=shapeTarget(i,shape);
-    if(selfCouple>0.01&&shape!==21&&(i&7)===0){
-      // 1-in-8 particles, tgt mutated in place instead of allocating a new
-      // array. First version sampled every-other particle and allocated a
-      // fresh [a,b,c] array for the blend — measured (properly, multi-trial,
-      // isolated from a real baseline) at +5.3ms/frame on top of a 5.4ms
-      // baseline, on a 16.6ms budget: real, reported lag, not a false alarm.
-      // 1-in-8 + no extra allocation measures at +2.0ms — still a genuinely
-      // dense bridge (12,500+ particles on desktop) with real headroom left.
+  // Pass 1: every particle's target, computed exactly once — same total
+  // shapeTarget() call count as before self-coupling ever existed.
+  for(var i=0;i<N;i++){ var _t0=shapeTarget(i,shape); _tgtX[i]=_t0[0]; _tgtY[i]=_t0[1]; _tgtZ[i]=_t0[2]; }
+  // Pass 2: self-coupling, reading the buffer instead of ever recomputing a
+  // partner's target. Pure typed-array arithmetic, no function calls, no
+  // allocation — can now afford to couple every particle, not just 1-in-8.
+  if(selfCouple>0.01){
+    for(var i=0;i<N;i++){
+      if(shape===21) continue; // Pipes' own real geometry handles this differently
       var j=(i+partnerStep+driftOffset)%N;
-      var tgtP=shapeTarget(j,shape);
-      tgt[0]+=(tgtP[0]-tgt[0])*selfCouple;tgt[1]+=(tgtP[1]-tgt[1])*selfCouple;tgt[2]+=(tgtP[2]-tgt[2])*selfCouple;
+      _tgtX[i]+=(_tgtX[j]-_tgtX[i])*selfCouple;
+      _tgtY[i]+=(_tgtY[j]-_tgtY[i])*selfCouple;
+      _tgtZ[i]+=(_tgtZ[j]-_tgtZ[i])*selfCouple;
     }
-    vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
+  }
+  for(var i=0;i<N;i++){
+    var tx=_tgtX[i],ty=_tgtY[i],tz=_tgtZ[i];
+    vx[i]+=(tx-px[i])*kk;vy[i]+=(ty-py[i])*kk;vz[i]+=(tz-pz[i])*kk;
     if(jitOn){
       // ripple — the same jitter budget as before, but phase-shifted per
       // particle so it travels across the shape instead of shaking everywhere
@@ -1067,7 +1080,7 @@ function simStep(){
         // a hard, provable bound, verified under 20 continuous seconds of
         // worst-case back-to-back transients (a dense EDM-style track),
         // not just tuned to look right on one assumed audio pattern.
-        var dx=px[i]-tgt[0],dy=py[i]-tgt[1],dz=pz[i]-tgt[2];
+        var dx=px[i]-tx,dy=py[i]-ty,dz=pz[i]-tz;
         var pd=Math.sqrt(dx*dx+dy*dy+dz*dz);
         if(pd<1.4){
           var pdSafe=pd+0.05;
@@ -1151,9 +1164,9 @@ function simStep(){
       var node=Math.max(0,1-Math.abs(chF2)*3.2);
       cr[i]=0.15+node*0.85; cg2[i]=0.13+node*0.82; cb[i]=0.22+node*0.7;
     } else if(shape===24){
-      // Plasma — classic rainbow field coloring, reusing tgt[1] (the field value
+      // Plasma — classic rainbow field coloring, reusing ty (the field value
       // itself) instead of recomputing the four-source interference sum again.
-      var plHue=tgt[1]*2.4+t*0.2;
+      var plHue=ty*2.4+t*0.2;
       var plBr=0.45+audioIntensity*0.35;
       cr[i]=plBr*(0.5+0.5*Math.sin(plHue));
       cg2[i]=plBr*(0.5+0.5*Math.sin(plHue+2.094));
