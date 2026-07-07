@@ -124,31 +124,51 @@ function analyze() {
     return n;
   }
 
-  // === UPDATES: language that marks a position actually changing ===
+  // === UPDATES: language that marks a position actually changing OR a simple
+  // narrative being deliberately complicated instead of left tidy ===
   var updateHits = countHits([
     /\bi (was|used to be) wrong\b/g, /\bi('ve| have) changed my mind\b/g,
     /\bactually,? (i|that|now)\b/g, /\bon (second|further) thought\b/g,
     /\bi (need to |should )?reconsider/g, /\bthat changes (things|my)/g,
     /\bi stand corrected\b/g, /\bupdat(e|ed|ing) my (view|thinking|position)/g,
-    /\bturns out i\b/g, /\bi missed\b/g
+    /\bturns out i\b/g, /\bi missed\b/g,
+    /\bisn'?t (separable|incidental) (from|to)\b/g, /\bnot (two|simply|just|only) .{0,40}\bthat happen to\b/g,
+    /\bcomplicates\b/g, /\bin tension with\b/g, /\bat odds with\b/g
   ]);
   var updateScore = Math.min(1, updateHits / Math.max(3, sentences.length * 0.08));
+
+  // Explicit epistemic-status labeling — separating fact from interpretation from
+  // open question is a rarer, stronger honesty signal than casual hedging, and a
+  // completely different register from "I was wrong." First real test of this tool
+  // (a piece using exactly this structure) scored zero before this existed — it was
+  // only listening for first-person conversational hedges, not analytical rigor.
+  var epistemicLabel = countHits([
+    /\bverified\b/g, /\bwhat is documented\b/g, /\bwhat is (known|established)\b/g,
+    /\bwhat is interpretation\b/g, /\bwhat is (genuinely )?(open|unknown|unresolved)\b/g
+  ]);
 
   // === OWNS BEING WRONG: real ownership vs. passive-voice cover ===
   var ownHits = countHits([/\bi was wrong\b/g, /\bmy (mistake|fault|error)\b/g, /\bi got that wrong\b/g, /\bi misjudged\b/g, /\bi shouldn't have\b/g]);
   var coverHits = countHits([/\bmistakes were made\b/g, /\bit is what it is\b/g, /\bnot my (fault|call)\b/g]);
-  var ownScore = Math.max(0, Math.min(1, (ownHits * 0.35) - (coverHits * 0.3) + (ownHits > 0 ? 0.2 : 0)));
+  var ownScore = Math.max(0, Math.min(1, (ownHits * 0.35) - (coverHits * 0.3) + (ownHits > 0 ? 0.2 : 0) + Math.min(0.4, epistemicLabel * 0.15)));
 
-  // === REAL UNCERTAINTY: plain not-knowing vs. inflated certainty language ===
-  var honestUncertain = countHits([/\bi don'?t know\b/g, /\bi'?m not sure\b/g, /\bunclear to me\b/g, /\bi could be wrong\b/g, /\bhonestly,? i\b/g]);
+  // === REAL UNCERTAINTY: plain not-knowing vs. inflated certainty language,
+  // first-person OR analytical third-person acknowledgment of what's unresolved ===
+  var honestUncertain = countHits([
+    /\bi don'?t know\b/g, /\bi'?m not sure\b/g, /\bunclear to me\b/g, /\bi could be wrong\b/g, /\bhonestly,? i\b/g,
+    /\bambivalent\b/g, /\bnever (fully )?resolved\b/g, /\bremains unresolved\b/g, /\bneither do we\b/g,
+    /\bwe don'?t know\b/g, /\bnobody knows\b/g, /\bgenuinely open\b/g, /\bopen question\b/g, /\bno clear answer\b/g
+  ]);
   var inflated = countHits([/\bobviously\b/g, /\bclearly\b/g, /\beveryone knows\b/g, /\balways\b/g, /\bnever\b/g, /\bwithout (a )?doubt\b/g]);
   var uncertainScore = Math.max(0, Math.min(1, (honestUncertain / Math.max(2, sentences.length * 0.06)) - (inflated * 0.04)));
 
-  // === NOTICES CRACKS: self-caught inconsistency, real questions, counter-consideration ===
+  // === NOTICES CRACKS: self-caught inconsistency, real questions, counter-consideration,
+  // or the structural version of the same thing — explicitly labeling which claims are
+  // solid and which aren't, instead of presenting everything with equal confidence ===
   var noticeHits = countHits([/\bwait,? (that|this)\b/g, /\bhm+\b/g, /\bhold on\b/g, /\bthat doesn'?t (add up|hold|make sense)\b/g,
     /\bon the other hand\b/g, /\bto be fair\b/g, /\bbut then again\b/g, /\bcounterpoint\b/g, /\bwhat if i'?m wrong about\b/g]);
   var questionCount = (text.match(/\?/g) || []).length;
-  var noticeScore = Math.min(1, (noticeHits / Math.max(2, sentences.length * 0.08)) + Math.min(0.3, questionCount / Math.max(4, sentences.length * 0.15)));
+  var noticeScore = Math.min(1, (noticeHits / Math.max(2, sentences.length * 0.08)) + Math.min(0.3, questionCount / Math.max(4, sentences.length * 0.15)) + Math.min(0.35, epistemicLabel * 0.12));
 
   var shape = updateScore * 0.3 + ownScore * 0.25 + uncertainScore * 0.25 + noticeScore * 0.2;
   shape = Math.round(Math.max(0, Math.min(1, shape)) * 100);
