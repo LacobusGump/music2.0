@@ -168,6 +168,13 @@ var BEAT_SHAPES=[
 var cv=document.getElementById('field');
 var gl=cv.getContext('webgl',{antialias:false,alpha:true,premultipliedAlpha:false});
 if(!gl){document.body.innerHTML='<p style="color:#c9a44a;padding:40px;font:Georgia;">WebGL not available</p>';throw'no webgl';}
+// Real fix for the additive-blowout blur (every dense/converged shape, not just one):
+// plain additive blending (SRC_ALPHA,ONE) sums brightness with zero ceiling, so any
+// spot where several points visually overlap clips to flat white and reads as a
+// hazy blob. EXT_blend_minmax lets a MAX equation replace SUM for the points draw —
+// a pixel takes whichever single point covering it is brightest, instead of every
+// covering point's brightness stacking. Near-universal support (core WebGL1 ext).
+var extBlendMax=gl.getExtension('EXT_blend_minmax');
 
 var _mob0=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);
 var DPR=Math.min(devicePixelRatio||1,_mob0?1.5:2); // cap fill-rate — phones render 100k additive points at 3x otherwise
@@ -273,7 +280,10 @@ void main(){
   float d=length(c);
   if(d>0.5)discard;
   float a=1.0-smoothstep(0.40,0.5,d); // hard bright disc, only the outer rim feathers
-  gl_FragColor=vec4(vCol,vAlpha*uBright*a);
+  // Alpha baked directly into color (premultiplied) — the MAX blend equation this
+  // draw uses ignores the alpha channel entirely, so depth-fade/rim-softness have
+  // to live in RGB or they'd vanish (every point would draw at full brightness).
+  gl_FragColor=vec4(vCol*(vAlpha*uBright*a),1.0);
 }`;
 
 function compile(type,src){
@@ -1641,7 +1651,9 @@ function render(){
     gl.enableVertexAttribArray(aSize);
     gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
 
+    if(extBlendMax)gl.blendEquation(extBlendMax.MAX_EXT); // no-overflow blend for this draw only
     gl.drawArrays(gl.POINTS,0,N);
+    if(extBlendMax)gl.blendEquation(gl.FUNC_ADD); // restore normal blending for the fade quad / next frame
   }
 
   // Stats
