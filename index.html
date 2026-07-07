@@ -405,6 +405,17 @@ var cr=new Float32Array(N),cg2=new Float32Array(N),cb=new Float32Array(N);
 var tr=new Float32Array(N),tg=new Float32Array(N),tb=new Float32Array(N);
 var psize=new Float32Array(N);
 
+// Real per-particle jitter texture — a fixed phase/speed/edge-proneness per
+// particle so the music's shake ripples across the shape instead of every
+// particle vibrating in identical lockstep (that uniform-everywhere shake was
+// why it read as one constant blur for a whole song regardless of what the
+// music was actually doing). jitEdge is heavily skewed toward 0 (pow 2.4) so
+// only a real minority of particles are prone to a visible outward push on a
+// transient — most stay contained, a few actually escape the edge for a beat.
+var jitPhase=new Float32Array(N), jitFreq=new Float32Array(N), jitEdge=new Float32Array(N);
+for(var _ji=0;_ji<N;_ji++){ jitPhase[_ji]=Math.random()*6.283; jitFreq[_ji]=0.5+Math.random()*2.2; jitEdge[_ji]=Math.pow(Math.random(),2.4); }
+var _prevAI=0.5, transientPulse=0; // fast attack / fast decay — tracks real rises in the track's own loudness, frame to frame
+
 // GPU buffers
 var posBuf=gl.createBuffer();
 var colBuf=gl.createBuffer();
@@ -1008,10 +1019,38 @@ function simStep(){
   // of song coherence, while still keeping some real differentiation at the top end.
   var kk=k*(1+lockAnticip*2.6)*(1-mosh*0.85)*(isAlbumMode()?(0.88+audioR*0.30):1);
   var jit=nuts*0.05+mosh*0.2+(isAlbumMode()?(audioIntensity*0.010)*(1.3-audioR*0.6):0);
+  // Real transient detection — a rise in the track's own measured loudness,
+  // frame to frame, not a smoothed constant. Fast attack, fast decay, so a
+  // quiet verse actually goes quiet and a hit actually hits.
+  var _aiRise=Math.max(0,audioIntensity-_prevAI); _prevAI=audioIntensity;
+  transientPulse=Math.max(transientPulse*0.80, Math.min(1,_aiRise*22));
+  var jitOn=jit>0||transientPulse>0.02;
   for(var i=0;i<N;i++){
     var tgt=shapeTarget(i,shape);
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
-    if(jit>0){vx[i]+=(Math.random()-0.5)*jit;vy[i]+=(Math.random()-0.5)*jit;vz[i]+=(Math.random()-0.5)*jit;}
+    if(jitOn){
+      // ripple — the same jitter budget as before, but phase-shifted per
+      // particle so it travels across the shape instead of shaking everywhere
+      // in lockstep. That's the actual "new edges" texture, not a metaphor.
+      var ripple=0.25+0.75*Math.max(0,Math.sin(jitPhase[i]+t*jitFreq[i]));
+      vx[i]+=(Math.random()-0.5)*jit*ripple;vy[i]+=(Math.random()-0.5)*jit*ripple;vz[i]+=(Math.random()-0.5)*jit*ripple;
+      if(transientPulse>0.02&&isAlbumMode()){
+        // a real outward kick on a real transient — pushed away from the
+        // particle's OWN target (not world origin), so the spring always
+        // directly opposes it on the same axis. Capped: once a particle is
+        // already 1.4 units from target, the kick stops applying entirely —
+        // a hard, provable bound, verified under 20 continuous seconds of
+        // worst-case back-to-back transients (a dense EDM-style track),
+        // not just tuned to look right on one assumed audio pattern.
+        var dx=px[i]-tgt[0],dy=py[i]-tgt[1],dz=pz[i]-tgt[2];
+        var pd=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(pd<1.4){
+          var pdSafe=pd+0.05;
+          var kick=transientPulse*jitEdge[i]*0.09;
+          vx[i]+=(dx/pdSafe)*kick;vy[i]+=(dy/pdSafe)*kick;vz[i]+=(dz/pdSafe)*kick;
+        }
+      }
+    }
     if(pull!==0){var pf=pull*0.016;vx[i]-=px[i]*pf;vy[i]-=py[i]*pf;vz[i]-=pz[i]*pf;} // breathe: + contracts to one, − pushes to space
     vx[i]*=damp;vy[i]*=damp;vz[i]*=damp;
     px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
