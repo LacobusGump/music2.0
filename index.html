@@ -314,6 +314,58 @@ gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, 1,1]),gl.STATIC_DRAW);
 var TRAIL_SHAPES={17:0.09, 18:0.14, 19:0.05, 20:0.045, 22:0.08, 24:0.05}; // shape index → fade amount per frame (higher = shorter trail)
 
+// ═══ REAL LIT 3D GEOMETRY — solid tube mesh, not particles ═══
+// Every shape above is a point-cloud approximating a form. Real 1998 Pipes was
+// actual 3D tube geometry with lighting and a specular highlight, which is why
+// it read as a solid object in the room instead of a haze of light — a
+// different rendering technique, not a tuning knob on the particle shader.
+// This is the first shape built the other way: real vertices, real normals,
+// a real lighting model, drawn as lit triangles instead of glowing dots.
+var tVsrc=`
+attribute vec3 tPos;
+attribute vec3 tNorm;
+attribute vec3 tCol;
+uniform mat4 tMVP;
+varying vec3 vN;
+varying vec3 vC;
+varying vec3 vWorldPos;
+void main(){
+  gl_Position=tMVP*vec4(tPos,1.0);
+  vN=tNorm;
+  vC=tCol;
+  vWorldPos=tPos;
+}`;
+var tFsrc=`
+precision mediump float;
+varying vec3 vN;
+varying vec3 vC;
+varying vec3 vWorldPos;
+uniform vec3 tLightDir;
+uniform vec3 tEyePos;
+void main(){
+  vec3 N=normalize(vN);
+  vec3 L=normalize(tLightDir);
+  float diff=max(dot(N,L),0.0);
+  vec3 V=normalize(tEyePos-vWorldPos);
+  vec3 H=normalize(L+V);
+  float spec=pow(max(dot(N,H),0.0),28.0);
+  float rim=pow(1.0-max(dot(N,V),0.0),2.2);
+  vec3 base=vC*(0.22+diff*0.78);
+  vec3 color=base+vec3(1.0,0.97,0.9)*spec*0.7+vC*rim*0.4;
+  gl_FragColor=vec4(color,1.0);
+}`;
+var tubeProg=gl.createProgram();
+gl.attachShader(tubeProg,compile(gl.VERTEX_SHADER,tVsrc));
+gl.attachShader(tubeProg,compile(gl.FRAGMENT_SHADER,tFsrc));
+gl.linkProgram(tubeProg);
+var tAPos=gl.getAttribLocation(tubeProg,'tPos');
+var tANorm=gl.getAttribLocation(tubeProg,'tNorm');
+var tACol=gl.getAttribLocation(tubeProg,'tCol');
+var tUMVP=gl.getUniformLocation(tubeProg,'tMVP');
+var tULightDir=gl.getUniformLocation(tubeProg,'tLightDir');
+var tUEyePos=gl.getUniformLocation(tubeProg,'tEyePos');
+var tubePosBuf=gl.createBuffer(), tubeNormBuf=gl.createBuffer(), tubeColBuf=gl.createBuffer();
+
 // ═══ 100,000 PARTICLES ═══
 var MOB=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);var N=MOB?32000:100000;
 
@@ -500,6 +552,57 @@ function stepPipes(){
     pipeX[p][w]=x; pipeY[p][w]=y; pipeZ[p][w]=z; pipeAxis[p][w]=ax>>1; // store which plane (0=X,1=Y,2=Z), not sign
     pipeWrite[p]=(w+1)%PIPE_HIST;
   }
+}
+
+// Real tube mesh for Pipes — a ring of TUBE_SIDES vertices at every history
+// sample, connected to the next ring by two triangles per side, normals
+// pointing straight out from the tube's own axis. Built fresh each frame
+// (cheap — a few thousand vertices of trig, not 100,000 particles of physics)
+// only while shape 21 is actually on screen.
+var TUBE_SIDES=6;
+var TUBE_MAXV=PIPE_N*(PIPE_HIST-1)*TUBE_SIDES*6;
+var tubePos=new Float32Array(TUBE_MAXV*3), tubeNorm=new Float32Array(TUBE_MAXV*3), tubeCol=new Float32Array(TUBE_MAXV*3);
+var tubeVertCount=0;
+function buildPipeTubeGeometry(){
+  var w=0;
+  var ringPX=new Array(PIPE_HIST),ringPY=new Array(PIPE_HIST),ringPZ=new Array(PIPE_HIST),ringNX=new Array(PIPE_HIST),ringNY=new Array(PIPE_HIST),ringNZ=new Array(PIPE_HIST);
+  for(var i=0;i<PIPE_HIST;i++){ ringPX[i]=new Array(TUBE_SIDES);ringPY[i]=new Array(TUBE_SIDES);ringPZ[i]=new Array(TUBE_SIDES);ringNX[i]=new Array(TUBE_SIDES);ringNY[i]=new Array(TUBE_SIDES);ringNZ[i]=new Array(TUBE_SIDES); }
+  var tubeRadius=0.05+audioIntensity*0.03;
+  for(var p=0;p<PIPE_N;p++){
+    var hue=(p/PIPE_N)*6.283+t*0.15;
+    var baseR=0.5+0.5*Math.sin(hue), baseG=0.5+0.5*Math.sin(hue+2.094), baseB=0.5+0.5*Math.sin(hue+4.189);
+    for(var i=0;i<PIPE_HIST;i++){
+      var readIdx=(pipeWrite[p]+i)%PIPE_HIST;
+      var ax=pipeAxis[p][readIdx];
+      var cx=pipeX[p][readIdx]*1.4, cy=pipeY[p][readIdx]*1.4, cz=pipeZ[p][readIdx]*1.4;
+      for(var s=0;s<TUBE_SIDES;s++){
+        var ang=(s/TUBE_SIDES)*6.28318530718;
+        var ca=Math.cos(ang), sa=Math.sin(ang);
+        var nx=0,ny=0,nz=0;
+        if(ax===0){ ny=ca; nz=sa; } else if(ax===1){ nx=ca; nz=sa; } else { nx=ca; ny=sa; }
+        ringPX[i][s]=cx+nx*tubeRadius; ringPY[i][s]=cy+ny*tubeRadius; ringPZ[i][s]=cz+nz*tubeRadius;
+        ringNX[i][s]=nx; ringNY[i][s]=ny; ringNZ[i][s]=nz;
+      }
+    }
+    for(var i=0;i<PIPE_HIST-1;i++){
+      var recency=i/(PIPE_HIST-1); // read order is oldest-first — matches shapeTarget case 21
+      var br=0.3+0.7*recency;
+      var cr0=baseR*br, cg0=baseG*br, cb0=baseB*br;
+      for(var s=0;s<TUBE_SIDES;s++){
+        var s1=(s+1)%TUBE_SIDES;
+        // two triangles per side, per ring segment: A,B,C then B,D,C
+        var verts=[[i,s],[i,s1],[i+1,s],[i,s1],[i+1,s1],[i+1,s]];
+        for(var vi=0;vi<6;vi++){
+          var ri=verts[vi][0], rs=verts[vi][1];
+          tubePos[w*3]=ringPX[ri][rs]; tubePos[w*3+1]=ringPY[ri][rs]; tubePos[w*3+2]=ringPZ[ri][rs];
+          tubeNorm[w*3]=ringNX[ri][rs]; tubeNorm[w*3+1]=ringNY[ri][rs]; tubeNorm[w*3+2]=ringNZ[ri][rs];
+          tubeCol[w*3]=cr0; tubeCol[w*3+1]=cg0; tubeCol[w*3+2]=cb0;
+          w++;
+        }
+      }
+    }
+  }
+  tubeVertCount=w;
 }
 
 // Precompute primes + Lorenz
@@ -1066,26 +1169,62 @@ function render(){
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
-  gl.uniformMatrix4fv(uMVP,false,mvp);
-  gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
-  gl.uniform1f(uBright,MOB?0.72:0.66); // the field is the whole show now, not a 22%-opacity accent under a painting
+  if(shape===21 && morphT>=1){
+    // Real solid geometry instead of particles — see buildPipeTubeGeometry().
+    // Needs actual depth testing to read as a solid object (particles never
+    // used depth at all, additive blending doesn't need it); switched off
+    // again immediately after so every other shape renders exactly as before.
+    buildPipeTubeGeometry();
+    gl.useProgram(tubeProg);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.uniformMatrix4fv(tUMVP,false,mvp);
+    gl.uniform3f(tULightDir,0.5,0.85,0.35);
+    gl.uniform3f(tUEyePos,0,0,camDist*4); // matches the view translate(...,-camDist*4) convention below
 
-  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,tubePosBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,tubePos.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(tAPos);
+    gl.vertexAttribPointer(tAPos,3,gl.FLOAT,false,0,0);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,gpuCol,gl.DYNAMIC_DRAW);
-  gl.enableVertexAttribArray(aCol);
-  gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,tubeNormBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,tubeNorm.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(tANorm);
+    gl.vertexAttribPointer(tANorm,3,gl.FLOAT,false,0,0);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,psize,gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(aSize);
-  gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,tubeColBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,tubeCol.subarray(0,tubeVertCount*3),gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(tACol);
+    gl.vertexAttribPointer(tACol,3,gl.FLOAT,false,0,0);
 
-  gl.drawArrays(gl.POINTS,0,N);
+    gl.drawArrays(gl.TRIANGLES,0,tubeVertCount);
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // restore additive for every other shape
+    gl.useProgram(prog);
+  } else {
+    gl.uniformMatrix4fv(uMVP,false,mvp);
+    gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
+    gl.uniform1f(uBright,MOB?0.72:0.66); // the field is the whole show now, not a 22%-opacity accent under a painting
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,gpuCol,gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(aCol);
+    gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,psize,gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aSize);
+    gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
+
+    gl.drawArrays(gl.POINTS,0,N);
+  }
 
   // Stats
   var now=performance.now();
