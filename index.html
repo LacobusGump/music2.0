@@ -116,7 +116,7 @@ var ALB_SHAPES=[
   2,   // Installation Hum — torus, continuous loop
   7,   // Weakest K — lorenz, chaos at coupling's edge
   15,  // Gap Breath — blackhole, silence has gravity
-  1,   // GCD — helix, the thread that runs through everything
+  17,  // GCD — mystify, the Euclidean algorithm's actual billiard-ball bounce representation
   8,   // Muse ick — galaxy, looking down from above
   9,   // Fifteen Year Counter — tree, fifteen years of growth
   10,  // Exact Frequency — klein, the geometry of precision
@@ -289,6 +289,24 @@ gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // additive
 gl.clearColor(0,0,0,1);
 
+// ═══ FADE QUAD — real trail persistence for screensaver-era shapes (Mystify, etc).
+// gl.clear() always fully replaces the buffer regardless of alpha — it can't fade.
+// A full-screen quad drawn with normal alpha blending, INSTEAD of clearing, is what
+// actually lets old frames darken instead of vanish. Same trick as fillRect(low-alpha)
+// on the 2D gallery canvases, done the WebGL way. ═══
+var fadeVsrc=`attribute vec2 aQ;void main(){gl_Position=vec4(aQ,0.0,1.0);}`;
+var fadeFsrc=`precision mediump float;uniform vec4 uFadeCol;void main(){gl_FragColor=uFadeCol;}`;
+var fadeProg=gl.createProgram();
+gl.attachShader(fadeProg,compile(gl.VERTEX_SHADER,fadeVsrc));
+gl.attachShader(fadeProg,compile(gl.FRAGMENT_SHADER,fadeFsrc));
+gl.linkProgram(fadeProg);
+var aQ=gl.getAttribLocation(fadeProg,'aQ');
+var uFadeCol=gl.getUniformLocation(fadeProg,'uFadeCol');
+var quadBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, 1,1]),gl.STATIC_DRAW);
+var TRAIL_SHAPES={17:0.09}; // shape index → fade amount per frame (higher = shorter trail)
+
 // ═══ 100,000 PARTICLES ═══
 var MOB=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);var N=MOB?32000:100000;
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
@@ -332,26 +350,47 @@ function envSample(arr,ct,dt){
 var audioIntensity=0.5, audioBrightness=0.7; // live-sampled each frame from whichever track is actually playing
 
 // ═══ SHAPES (same 12 as before) ═══
-var SHAPES=17;
+var SHAPES=18;
 var shape=0,morphT=1,shapeTime=0,burstT=0;
 var SHAPE_DURATION=8;
 
 var NAMES=['the spiral','helix','torus','wave','orbitals','prime spiral',
   'möbius','lorenz','galaxy','tree','klein','tesseract',
-  'supernova','murmuration','heart','black hole','circuit'];
+  'supernova','murmuration','heart','black hole','circuit','mystify'];
 var EQNS=['golden cone — φ all the way down','backbone + rungs','(R+r·cos v)cos u','two-source interference',
   's,p,d shells','√n spiral','half-twist','σ=10 ρ=28 β=8/3',
   '4-arm log spiral','fractal branch','self-intersect','4D wireframe',
   'expanding filaments','self-organizing flock','cardioid pulse','R=1 — total phase lock',
-  'Manhattan routing, 4 layers deep'];
+  'Manhattan routing, 4 layers deep','5 vertices, perfectly elastic collision'];
 
 var PALETTES=[
   [.92,.64,.30],[.84,.6,.4],[.86,.55,.34],[.55,.74,.55],[.9,.62,.36],
   [.86,.74,.5],[.82,.5,.5],[.92,.42,.3],[.92,.6,.4],[.55,.76,.45],
   [.86,.66,.46],[1,.71,.39],
   [1,.55,.2],[.95,.6,.34],[.95,.22,.32],[.62,.18,.34],
-  [.4,.9,.7]
+  [.4,.9,.7],[.9,.4,.8]
 ];
+
+// Mystify — persistent bouncing polygon vertices, perfectly elastic collisions
+// against an invisible bounding box. This is stateful across frames (unlike every
+// other shape here), updated once per simStep tick, not recomputed from scratch.
+var MYSTIFY_N=5, MYSTIFY_BOUND=3.2;
+var mystifyV=[];
+for(var _mi=0;_mi<MYSTIFY_N;_mi++){
+  mystifyV.push({
+    x:(Math.random()-0.5)*MYSTIFY_BOUND*1.4, y:(Math.random()-0.5)*MYSTIFY_BOUND*1.4, z:(Math.random()-0.5)*MYSTIFY_BOUND*1.4,
+    vx:(Math.random()-0.5)*0.028, vy:(Math.random()-0.5)*0.028, vz:(Math.random()-0.5)*0.028
+  });
+}
+function stepMystify(){
+  for(var i=0;i<mystifyV.length;i++){
+    var v=mystifyV[i];
+    v.x+=v.vx; v.y+=v.vy; v.z+=v.vz;
+    if(Math.abs(v.x)>MYSTIFY_BOUND){v.vx=-v.vx;v.x=Math.sign(v.x)*MYSTIFY_BOUND;}
+    if(Math.abs(v.y)>MYSTIFY_BOUND){v.vy=-v.vy;v.y=Math.sign(v.y)*MYSTIFY_BOUND;}
+    if(Math.abs(v.z)>MYSTIFY_BOUND){v.vz=-v.vz;v.z=Math.sign(v.z)*MYSTIFY_BOUND;}
+  }
+}
 
 // Precompute primes + Lorenz
 var _isPrime=new Uint8Array(N+2);
@@ -537,6 +576,18 @@ function shapeTarget(i,s){
       var gThresh=0.996-audioIntensity*0.05;
       if(gHash>gThresh){ var gAmt=0.4+audioIntensity*0.6; tx+=Math.sin(i*17.3)*gAmt; ty+=Math.cos(i*13.1)*gAmt; tz+=Math.sin(i*9.7)*gAmt*0.4; }
       break;
+    case 17: // Mystify — particles walk the edges of the live bouncing polygon.
+      // The vertices are real physics state (see stepMystify), not a formula of fi/t.
+      // Paired with TRAIL_SHAPES, this is the one that actually needs real persistence
+      // to read right — that's the whole point of this shape.
+      var mn=mystifyV.length;
+      var edgeIdx=i%mn;
+      var vA=mystifyV[edgeIdx], vB=mystifyV[(edgeIdx+1)%mn];
+      var edgeFrac=((i*13)%211)/211;
+      tx=vA.x+(vB.x-vA.x)*edgeFrac;
+      ty=vA.y+(vB.y-vA.y)*edgeFrac;
+      tz=vA.z+(vB.z-vA.z)*edgeFrac;
+      break;
     default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
@@ -557,6 +608,7 @@ function simStep(){
   t+=0.016;
   shapeTime+=0.016;
   if(burstT>0)burstT-=0.016;
+  if(shape===17) stepMystify(); // persistent vertex physics, once per frame not per particle
 
   // ── beat grid + lock timeline (driven by playback time, beat-accurate) ──
   var ct=dSongTime(); songOn=ct>=0;
@@ -677,6 +729,15 @@ function simStep(){
       cr[i]=baseR*grown+tip*(1-baseR*grown);
       cg2[i]=baseG*grown+tip*(1-baseG*grown);
       cb[i]=baseB*grown+tip*(1-baseB*grown);
+    } else if(shape===17){
+      // classic Mystify — each edge its own color, all slowly rotating through hue.
+      // With real trail persistence now in place, this is the shape that actually
+      // proves the fade-quad was worth building.
+      var mnC=mystifyV.length;
+      var edgeHue=((i%mnC)/mnC)*6.283+t*0.25;
+      cr[i]=0.55+0.45*Math.sin(edgeHue);
+      cg2[i]=0.55+0.45*Math.sin(edgeHue+2.094);
+      cb[i]=0.55+0.45*Math.sin(edgeHue+4.189);
     } else {
       // universal audio-reactive brightness — every song gets a real, measured
       // "brighter when it's actually louder" pulse on whatever shape it's using,
@@ -746,8 +807,23 @@ function render(){
     gpuCol[i*3]=cr[i];gpuCol[i*3+1]=cg2[i];gpuCol[i*3+2]=cb[i];
   }
 
-  gl.clearColor(0,0,0,isAlbumMode()?0:1); // album=transparent (art shows through), math=opaque black
-  gl.clear(gl.COLOR_BUFFER_BIT);
+  var trailFade=TRAIL_SHAPES[shape];
+  if(trailFade!==undefined && morphT>=1){
+    // real persistence — draw a translucent dark quad instead of clearing.
+    // Trail-shapes own the whole screen (no gallery art layered under them).
+    gl.useProgram(fadeProg);
+    gl.disable(gl.BLEND); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform4f(uFadeCol,0.039,0.027,0.02,trailFade);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+    gl.enableVertexAttribArray(aQ);
+    gl.vertexAttribPointer(aQ,2,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    gl.useProgram(prog);
+    gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // back to additive for the particles
+  } else {
+    gl.clearColor(0,0,0,isAlbumMode()?0:1); // album=transparent (art shows through), math=opaque black
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
 
   gl.uniformMatrix4fv(uMVP,false,mvp);
   gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
