@@ -422,8 +422,8 @@ var psize=new Float32Array(N);
 // music was actually doing). jitEdge is heavily skewed toward 0 (pow 2.4) so
 // only a real minority of particles are prone to a visible outward push on a
 // transient — most stay contained, a few actually escape the edge for a beat.
-var jitPhase=new Float32Array(N), jitFreq=new Float32Array(N), jitEdge=new Float32Array(N);
-for(var _ji=0;_ji<N;_ji++){ jitPhase[_ji]=Math.random()*6.283; jitFreq[_ji]=0.5+Math.random()*2.2; jitEdge[_ji]=Math.pow(Math.random(),2.4); }
+var jitEdge=new Float32Array(N);
+for(var _ji=0;_ji<N;_ji++){ jitEdge[_ji]=Math.pow(Math.random(),2.4); }
 var _prevAI=0.5, transientPulse=0; // fast attack / fast decay — tracks real rises in the track's own loudness, frame to frame
 
 // Persistent (allocated once, not per-frame) buffers for this frame's shape
@@ -1491,22 +1491,23 @@ function simStep(){
     var tx=_tgtX[i],ty=_tgtY[i],tz=_tgtZ[i];
     vx[i]+=(tx-px[i])*kk;vy[i]+=(ty-py[i])*kk;vz[i]+=(tz-pz[i])*kk;
     if(jitOn){
-      // Real per-particle traveling ripple — smooth and fully deterministic
-      // frame to frame, not fresh random noise every frame. James's own
-      // diagnosis, and it's the real fix: random noise refreshed 60 times a
-      // second reads as blur to human eyes no matter how small the
-      // amplitude is, because there's zero temporal coherence to it — a
-      // smooth wave reads as motion instead. Three different phase/frequency
-      // offsets per axis (still using each particle's own fixed jitPhase/
-      // jitFreq) so it doesn't look like simple synchronized pulsing, but
-      // every frame's value is fully predictable from the last one, which is
-      // what actually makes it read as a ripple instead of static. Amplitude
-      // is jit directly — already scales down toward true stillness during
-      // quiet parts of a song instead of holding a floor, so the underlying
-      // shape and the ripple's own undertone can actually be seen at rest.
-      var rx=Math.sin(jitPhase[i]+t*jitFreq[i]);
-      var ry=Math.sin(jitPhase[i]*1.31+t*jitFreq[i]*0.83+2.09);
-      var rz=Math.sin(jitPhase[i]*0.76+t*jitFreq[i]*1.19+4.18);
+      // Real fix, second time on this exact bug (see d8333803 above, which
+      // only solved half of it). That fix made the ripple temporally smooth
+      // — no more re-rolled random noise every frame — but every particle
+      // still carried its OWN independent phase/frequency (jitPhase[i],
+      // jitFreq[i]). Neighboring particles that are supposed to line up into
+      // a crisp edge were jittering in unrelated directions — spatially
+      // incoherent motion is what "blur" and "static" actually mean visually,
+      // regardless of how smooth each individual particle's own path is.
+      // Deriving the phase from the particle's own TARGET position instead
+      // (continuous across the shape's surface — neighbors share nearly the
+      // same tx/ty/tz) turns this into one traveling wave the whole shape
+      // rides together, like a flag rippling, instead of 100,000 independent
+      // wobbles reading as noise. Amplitude is still jit directly.
+      var _wp=(tx+ty+tz)*0.5;
+      var rx=Math.sin(_wp+t*1.7);
+      var ry=Math.sin(_wp*1.31+t*1.7*0.83+2.09);
+      var rz=Math.sin(_wp*0.76+t*1.7*1.19+4.18);
       vx[i]+=rx*jit;vy[i]+=ry*jit;vz[i]+=rz*jit;
       if(transientPulse>0.02&&isAlbumMode()){
         // a real outward kick on a real transient — pushed away from the
@@ -1792,7 +1793,13 @@ function render(){
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
     gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
-    gl.uniform1f(uBright,MOB?0.72:0.66); // the field is the whole show now, not a 22%-opacity accent under a painting
+    // Raised back up from 0.72/0.66 — those values were tuned to look right
+    // under the OLD additive-sum blending, where overlap made things brighter
+    // than a single point's own alpha. Under MAX blending a pixel can never
+    // exceed its single brightest covering point regardless of how dense the
+    // overlap is, so there's no blowout risk in going brighter — the old
+    // values just read as dim now that summing isn't inflating things.
+    gl.uniform1f(uBright,MOB?1.0:0.92);
 
     gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
     gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
