@@ -876,6 +876,39 @@ function galaxyArmPath(arm){
 }
 function galaxyArmRadius(u){ return 0.09-u*0.05; }
 
+// Shape 11 companion — Tesseract's 32 solid edges. Particles sit precisely
+// ON their assigned edge already (edgeFrac, no perpendicular scatter), so
+// unlike DNA/Galaxy there's no offset-from-mesh to shade by. The real shared
+// quantity here is rw4, the 4D depth (W-axis) that the perspective
+// projection (p4) uses for both — nearer-in-4D reads brighter for both the
+// companion and the particles, a genuine shared depth cue, not a decoration.
+var TESS_SEGS=24;
+function tesseractEdgeDepth(edge4,edgeFrac){
+  var v1=edge4,v2=edge4^(1<<(edge4%4));
+  var ax4=(v1&1)?1:-1,aw4=(v1&8)?1:-1;
+  var bx4=(v2&1)?1:-1,bw4=(v2&8)?1:-1;
+  var ex=ax4+(bx4-ax4)*edgeFrac,ew=aw4+(bw4-aw4)*edgeFrac;
+  var rot4=t*0.3,c4=Math.cos(rot4),s4=Math.sin(rot4);
+  var rw4=ex*s4+ew*c4;
+  return 2.5/(2.5+rw4*0.4); // p4 — same projection scale shapeTarget case 11 uses
+}
+function tesseractEdgePath(edge4){
+  var path=new Array(TESS_SEGS+1);
+  var v1=edge4,v2=edge4^(1<<(edge4%4));
+  var ax4=(v1&1)?1:-1,ay4=(v1&2)?1:-1,az4=(v1&4)?1:-1,aw4=(v1&8)?1:-1;
+  var bx4=(v2&1)?1:-1,by4=(v2&2)?1:-1,bz4=(v2&4)?1:-1,bw4=(v2&8)?1:-1;
+  var rot4=t*0.3,c4=Math.cos(rot4),s4=Math.sin(rot4);
+  for(var i=0;i<=TESS_SEGS;i++){
+    var edgeFrac=i/TESS_SEGS;
+    var ex=ax4+(bx4-ax4)*edgeFrac,ey=ay4+(by4-ay4)*edgeFrac;
+    var ez=az4+(bz4-az4)*edgeFrac,ew=aw4+(bw4-aw4)*edgeFrac;
+    var rx4=ex*c4-ew*s4,rw4=ex*s4+ew*c4;
+    var p4=2.5/(2.5+rw4*0.4);
+    path[i]=[rx4*p4*1.8,ey*p4*1.8,ez*p4*1.8];
+  }
+  return path;
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1549,6 +1582,15 @@ function simStep(){
         var prox8=1-Math.min(1,Math.abs(armOff8)/(spread8*0.5));
         var boost8=0.5+prox8*0.5;
         tr[i]=Math.min(1,pal[0]*v*boost8);tg[i]=Math.min(1,pal[1]*v*boost8);tb[i]=Math.min(1,pal[2]*v*boost8);
+      } else if(shape===11){
+        // Tesseract: particles sit precisely on their edge (no perpendicular
+        // scatter to shade by), so brightness instead follows the same 4D
+        // depth (p4) the perspective projection itself uses for scale —
+        // nearer-in-4D reads brighter for both the companion and the cloud.
+        var edge4_11=i%32,edgeFrac11=(i%3125)/3125;
+        var p4_11=tesseractEdgeDepth(edge4_11,edgeFrac11);
+        var boost11=0.4+Math.min(1,Math.max(0,(p4_11-0.8)/0.5))*0.6;
+        tr[i]=Math.min(1,pal[0]*v*boost11);tg[i]=Math.min(1,pal[1]*v*boost11);tb[i]=Math.min(1,pal[2]*v*boost11);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -1948,6 +1990,23 @@ function render(){
         },_w8);
       }
       tubeVertCount=_w8;
+      drawCompanionMesh();
+    }
+    if(shape===11 && morphT>=1){
+      // Tesseract's 32 solid edges, chained into one mesh. Brightness follows
+      // the same 4D depth (rw4/p4) the projection itself uses.
+      var _pcol11=PALETTES[11];
+      var _w11=0;
+      for(var _edge=0;_edge<32;_edge++){
+        (function(edge4){
+          _w11=buildTubeAlongPath(tesseractEdgePath(edge4),0.025,6,function(u){
+            var p4=tesseractEdgeDepth(edge4,u);
+            var br=0.4+Math.min(1,(p4-0.8)/0.5)*0.6;
+            return [_pcol11[0]*br,_pcol11[1]*br,_pcol11[2]*br];
+          },_w11);
+        })(_edge);
+      }
+      tubeVertCount=_w11;
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
