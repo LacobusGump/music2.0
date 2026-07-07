@@ -858,6 +858,24 @@ function waveHeightField(x,z){
   return (wave1+wave2)*(0.8+beatPulse*0.7);
 }
 
+// Shape 8 companion — Galaxy's four solid spiral-arm centerlines. Particles
+// scatter around these exact centerlines by armOff (see shapeTarget case 8);
+// this traces the same r8/armAngle math with armOff=0, tapering thinner
+// toward the tips the way a real galaxy's arms actually thin out.
+var GALAXY_SEGS=150;
+function galaxyArmPath(arm){
+  var path=new Array(GALAXY_SEGS+1);
+  for(var i=0;i<=GALAXY_SEGS;i++){
+    var fi=i/GALAXY_SEGS;
+    var r8=Math.pow(fi,0.5)*5;
+    var armAngle=r8*0.8+arm*Math.PI/2+t*0.03;
+    var gx=Math.cos(armAngle)*r8,gZ=Math.sin(armAngle)*r8;
+    path[i]=[gx,-gZ*0.97,gZ*0.22]; // gY=0 (core centerline), same edge-on tilt as the particle disk
+  }
+  return path;
+}
+function galaxyArmRadius(u){ return 0.09-u*0.05; }
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1522,6 +1540,15 @@ function simStep(){
         var dNear=Math.min(Math.hypot(wx3-1.5,wz3),Math.hypot(wx3+1.5,wz3));
         var boost3=0.5+Math.max(0,1-dNear/5)*0.5;
         tr[i]=Math.min(1,pal[0]*v*boost3);tg[i]=Math.min(1,pal[1]*v*boost3);tb[i]=Math.min(1,pal[2]*v*boost3);
+      } else if(shape===8){
+        // Galaxy: particles scatter around their arm's centerline by armOff
+        // (see shapeTarget case 8) — same proximity idea as DNA's rungs.
+        // Particles near their arm's own solid centerline read brighter.
+        var spread8=0.15+Math.pow(fi,0.5)*5*0.08;
+        var armOff8=(((i*7)%100)/100-0.5)*spread8;
+        var prox8=1-Math.min(1,Math.abs(armOff8)/(spread8*0.5));
+        var boost8=0.5+prox8*0.5;
+        tr[i]=Math.min(1,pal[0]*v*boost8);tg[i]=Math.min(1,pal[1]*v*boost8);tb[i]=Math.min(1,pal[2]*v*boost8);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -1909,6 +1936,18 @@ function render(){
       buildSurfaceGrid(WAVE_RES,-4,4,-4,4,waveHeightField,function(u,v){
         var br=0.55+((u+v)*0.5)*0.45; return [_pcol3[0]*br,_pcol3[1]*br,_pcol3[2]*br];
       },0);
+      drawCompanionMesh();
+    }
+    if(shape===8 && morphT>=1){
+      // Galaxy's four solid spiral-arm centerlines, chained into one mesh.
+      var _pcol8=PALETTES[8];
+      var _w8=0;
+      for(var _arm=0;_arm<4;_arm++){
+        _w8=buildTubeAlongPath(galaxyArmPath(_arm),galaxyArmRadius,7,function(u){
+          var br=0.55+(1-u)*0.45; return [_pcol8[0]*br,_pcol8[1]*br,_pcol8[2]*br];
+        },_w8);
+      }
+      tubeVertCount=_w8;
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
