@@ -168,13 +168,15 @@ var BEAT_SHAPES=[
 var cv=document.getElementById('field');
 var gl=cv.getContext('webgl',{antialias:false,alpha:true,premultipliedAlpha:false});
 if(!gl){document.body.innerHTML='<p style="color:#c9a44a;padding:40px;font:Georgia;">WebGL not available</p>';throw'no webgl';}
-// Real fix for the additive-blowout blur (every dense/converged shape, not just one):
-// plain additive blending (SRC_ALPHA,ONE) sums brightness with zero ceiling, so any
-// spot where several points visually overlap clips to flat white and reads as a
-// hazy blob. EXT_blend_minmax lets a MAX equation replace SUM for the points draw —
-// a pixel takes whichever single point covering it is brightest, instead of every
-// covering point's brightness stacking. Near-universal support (core WebGL1 ext).
-var extBlendMax=gl.getExtension('EXT_blend_minmax');
+// The real, structural fix for "muted/flat" — MAX blending (tried earlier this
+// session) caps every pixel at its single brightest covering point, which
+// means dense clusters can NEVER glow brighter than one point's own alpha —
+// that's why it read as flat and matte no matter how anything else was tuned.
+// Real particle-visualizer glow comes from plain additive blending (SRC_ALPHA,
+// ONE) where overlapping points genuinely accumulate brightness — the fix for
+// the ORIGINAL blowout isn't switching the blend equation, it's keeping each
+// point's own contribution low enough (see uBright below) that it takes real
+// overlap to build toward white, instead of one point already being full-bright.
 
 var _mob0=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||innerWidth<760);
 var DPR=Math.min(devicePixelRatio||1,_mob0?1.5:2); // cap fill-rate — phones render 100k additive points at 3x otherwise
@@ -1678,13 +1680,15 @@ function render(){
   } else {
     gl.uniformMatrix4fv(uMVP,false,mvp);
     gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.062:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
-    // Raised back up from 0.72/0.66 — those values were tuned to look right
-    // under the OLD additive-sum blending, where overlap made things brighter
-    // than a single point's own alpha. Under MAX blending a pixel can never
-    // exceed its single brightest covering point regardless of how dense the
-    // overlap is, so there's no blowout risk in going brighter — the old
-    // values just read as dim now that summing isn't inflating things.
-    gl.uniform1f(uBright,MOB?1.0:0.92);
+    // Lowered from 1.0/0.92 (tuned for MAX blending, which is gone — see
+    // above) and also below the pre-session 0.72/0.66. With real additive
+    // blending back, a single point's own alpha is what determines how much
+    // it can EVER contribute alone — set this low enough that lone/sparse
+    // points stay a soft glow, and only genuine overlap (many points'
+    // contributions actually summing) builds toward a bright, hot core.
+    // That overlap-built brightness gradient is the "shiny/watery" look
+    // that's been missing — it's a property of accumulation, not a constant.
+    gl.uniform1f(uBright,MOB?0.34:0.30);
 
     gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
     gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
@@ -1702,9 +1706,7 @@ function render(){
     gl.enableVertexAttribArray(aSize);
     gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
 
-    if(extBlendMax)gl.blendEquation(extBlendMax.MAX_EXT); // no-overflow blend for this draw only
-    gl.drawArrays(gl.POINTS,0,N);
-    if(extBlendMax)gl.blendEquation(gl.FUNC_ADD); // restore normal blending for the fade quad / next frame
+    gl.drawArrays(gl.POINTS,0,N); // plain additive (SRC_ALPHA,ONE, set at init) — real overlap-built glow
   }
 
   // Stats
