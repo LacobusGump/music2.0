@@ -409,6 +409,38 @@ function stepFlame(){
   }
 }
 
+// Shape 20 companion — Electric Sheep's chaos-game attractor has no smooth
+// centerline to trace (every particle picks a random transform every
+// frame, unlike every other shape's smooth formula-of-fi/t) — task #14's
+// own flag ("what does a centerline even mean for a chaotic attractor")
+// is real. The honest answer: run ONE more chain through the exact same
+// iteration, recorded into a history ring (same pattern as Pipes), and
+// render that single real trajectory as a solid thread. Not an
+// approximation of the attractor's shape — a literal, recorded path
+// through the identical system every particle is independently iterating.
+var SHEEP_HIST=200;
+var sheepHistX=new Float32Array(SHEEP_HIST),sheepHistY=new Float32Array(SHEEP_HIST),sheepHistZ=new Float32Array(SHEEP_HIST);
+var sheepCurX=0.3,sheepCurY=0.2,sheepCurZ=0,sheepWrite=0;
+function stepSheepCompanion(){
+  var xf=FLAME_XF[(Math.random()*FLAME_XF.length)|0];
+  var x=sheepCurX,y=sheepCurY;
+  var nx=xf.a*x+xf.b*y+xf.e,ny=xf.c*x+xf.d*y+xf.f;
+  var vx0=Math.sin(nx*2.0),vy0=Math.sin(ny*2.0);
+  sheepCurX=nx*0.5+vx0*0.5;
+  sheepCurY=ny*0.5+vy0*0.5;
+  sheepCurZ+=((sheepCurX*sheepCurY)*0.3-sheepCurZ)*0.1;
+  sheepHistX[sheepWrite]=sheepCurX*2.6;sheepHistY[sheepWrite]=sheepCurY*2.6;sheepHistZ[sheepWrite]=sheepCurZ*2.6;
+  sheepWrite=(sheepWrite+1)%SHEEP_HIST;
+}
+function sheepCompanionPath(){
+  var path=new Array(SHEEP_HIST);
+  for(var i=0;i<SHEEP_HIST;i++){
+    var idx=(sheepWrite+i)%SHEEP_HIST; // oldest-first, same read convention as Pipes
+    path[i]=[sheepHistX[idx],sheepHistY[idx],sheepHistZ[idx]];
+  }
+  return path;
+}
+
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
 var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 var cr=new Float32Array(N),cg2=new Float32Array(N),cb=new Float32Array(N);
@@ -1614,7 +1646,7 @@ function simStep(){
   shapeTime+=0.016;
   if(burstT>0)burstT-=0.016;
   if(shape===17) stepMystify(); // persistent vertex physics, once per frame not per particle
-  if(shape===20) stepFlame(); // real chaos-game iteration, once per frame, all N particles
+  if(shape===20){ stepFlame(); stepSheepCompanion(); } // real chaos-game iteration, once per frame, all N particles + one recorded companion chain
   if(shape===21) stepPipes(); // 7 heads crawling forward, once per frame not per particle
 
   // ── beat grid + lock timeline (driven by playback time, beat-accurate) ──
@@ -2350,6 +2382,13 @@ function render(){
       var _pcol19=PALETTES[19];
       buildParametricSurface(40,24,hyperspaceTunnelPos,function(u){
         var br=0.35+u*0.35; return [_pcol19[0]*br,_pcol19[1]*br,_pcol19[2]*br];
+      },0);
+      drawCompanionMesh();
+    }
+    if(shape===20 && morphT>=1){
+      // Electric Sheep's one recorded real trajectory through the chaos game.
+      buildTubeAlongPath(sheepCompanionPath(),0.04,6,function(u){
+        var hue=u*6.283+t*0.1; return [0.5+0.5*Math.sin(hue),0.5+0.5*Math.sin(hue+2.094),0.5+0.5*Math.sin(hue+4.189)];
       },0);
       drawCompanionMesh();
     }
