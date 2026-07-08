@@ -1239,6 +1239,34 @@ function primerHeightField(x,z){
   return primerSurface(x/7.4+0.5,z/6.2+0.5)[1];
 }
 
+// Shape 27 companion — The Lattice's rigid grid itself, always solid (not
+// blended by latticeSnap the way particles are). "The calculation was
+// already done before the question was asked" — the grid pre-exists;
+// particles are the ones snapping into it, chaos to order, so the
+// companion stays the grid throughout rather than tracing that same
+// transition. It DOES apply the same latticeDoor/latticeDark transforms
+// the particles' own grid target does, since those are things the grid
+// structure itself undergoes (settling onto the floor, fading to
+// nothing), not the chaos/order transition.
+function latticeGridPoint(gi,gj,gk){
+  var ltGn=9;
+  var lx=(gi/(ltGn-1)-0.5)*6.4,ly=(gj/(ltGn-1)-0.5)*6.4,lz=(gk/(ltGn-1)-0.5)*6.4;
+  lz*=(1-latticeDoor); ly=ly*(1-latticeDoor*0.3)-latticeDoor*1.2;
+  lx*=(1-latticeDark); ly*=(1-latticeDark); lz*=(1-latticeDark);
+  return [lx,ly,lz];
+}
+function latticeLinePath(axis,a,b){
+  var segs=8,path=new Array(segs+1);
+  for(var s=0;s<=segs;s++){
+    var c=[0,0,0];
+    if(axis===0){c[0]=s;c[1]=a;c[2]=b;}
+    else if(axis===1){c[0]=a;c[1]=s;c[2]=b;}
+    else{c[0]=a;c[1]=b;c[2]=s;}
+    path[s]=latticeGridPoint(c[0],c[1],c[2]);
+  }
+  return path;
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1953,6 +1981,19 @@ function simStep(){
         var starDist19=0.15+((i*13)%97)/97*1.0;
         var boost19=0.4+((starDist19-0.15)/1.0)*0.6;
         tr[i]=Math.min(1,pal[0]*v*boost19);tg[i]=Math.min(1,pal[1]*v*boost19);tb[i]=Math.min(1,pal[2]*v*boost19);
+      } else if(shape===27){
+        // The Lattice: color is set once at burst, so it can't track the
+        // live latticeSnap transition — uses a static real quantity instead,
+        // each particle's own fixed grid cell distance from the lattice
+        // center. Particles that land near the center (where "the
+        // calculation was already done") read brighter than ones near the
+        // grid's outer edge.
+        var ltGn27=9;
+        var ltGi27=i%ltGn27,ltGj27=Math.floor(i/ltGn27)%ltGn27,ltGk27=Math.floor(i/(ltGn27*ltGn27))%ltGn27;
+        var cdx27=(ltGi27-4)/4,cdy27=(ltGj27-4)/4,cdz27=(ltGk27-4)/4;
+        var centDist27=Math.sqrt(cdx27*cdx27+cdy27*cdy27+cdz27*cdz27)/Math.sqrt(3);
+        var boost27=0.4+(1-centDist27)*0.6;
+        tr[i]=Math.min(1,pal[0]*v*boost27);tg[i]=Math.min(1,pal[1]*v*boost27);tb[i]=Math.min(1,pal[2]*v*boost27);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -2485,6 +2526,25 @@ function render(){
       buildSurfaceGrid(40,-3.7,3.7,-3.1,3.1,primerHeightField,function(){
         var prB=0.03+primerReveal*0.55; return [prB*0.7,prB*0.6,prB*0.5];
       },0);
+      drawCompanionMesh();
+    }
+    if(shape===27 && morphT>=1){
+      // The Lattice's rigid grid, always solid — 27 representative lines
+      // (3 per axis x 9 grid-line positions per axis) rather than all 1944
+      // fine edges, enough to read as a real 3D lattice without clutter.
+      var _pcol27=PALETTES[27];
+      var _w27=0;
+      var _latPos=[0,4,8];
+      for(var _axis=0;_axis<3;_axis++){
+        for(var _pa=0;_pa<3;_pa++){
+          for(var _pb=0;_pb<3;_pb++){
+            _w27=buildTubeAlongPath(latticeLinePath(_axis,_latPos[_pa],_latPos[_pb]),0.025,5,function(){
+              return [_pcol27[0]*0.7,_pcol27[1]*0.7,_pcol27[2]*0.7];
+            },_w27);
+          }
+        }
+      }
+      tubeVertCount=_w27;
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
