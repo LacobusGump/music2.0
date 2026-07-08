@@ -1399,23 +1399,28 @@ function simStep(){
     var tx=_tgtX[i],ty=_tgtY[i],tz=_tgtZ[i];
     vx[i]+=(tx-px[i])*kk;vy[i]+=(ty-py[i])*kk;vz[i]+=(tz-pz[i])*kk;
     if(jitOn){
-      // Real fix, second time on this exact bug (see d8333803 above, which
-      // only solved half of it). That fix made the ripple temporally smooth
-      // — no more re-rolled random noise every frame — but every particle
-      // still carried its OWN independent phase/frequency (jitPhase[i],
-      // jitFreq[i]). Neighboring particles that are supposed to line up into
-      // a crisp edge were jittering in unrelated directions — spatially
-      // incoherent motion is what "blur" and "static" actually mean visually,
-      // regardless of how smooth each individual particle's own path is.
-      // Deriving the phase from the particle's own TARGET position instead
-      // (continuous across the shape's surface — neighbors share nearly the
-      // same tx/ty/tz) turns this into one traveling wave the whole shape
-      // rides together, like a flag rippling, instead of 100,000 independent
-      // wobbles reading as noise. Amplitude is still jit directly.
+      // Real fix, third time on this exact bug. Round 1 (d8333803) fixed
+      // temporal incoherence (no more re-rolled random noise). Round 2 fixed
+      // spatial incoherence (phase from target position, not a per-particle
+      // random seed — a traveling wave, not independent noise). Both left
+      // the ripple's own FREQUENCY hardcoded at 1.7 rad/s — the exact same
+      // rate on every shape, every song, every moment. Amplitude was already
+      // audio-reactive (jit), but a fixed-rate oscillation IS a repeating
+      // pattern by definition, which is exactly what read as "wiggle wiggle,
+      // cycling" instead of alive. The pace itself needs to come from the
+      // music: tied to live audioIntensity (ambient energy) and
+      // transientPulse (real hits/onsets, fast attack/decay) so quiet
+      // stretches ripple slow and gentle, loud stretches ripple faster, and
+      // an actual transient visibly speeds it up in the moment it happens.
+      // A second, smaller, differently-scaled sine (not a harmonic multiple
+      // of the first) is summed in so the combined motion is quasi-periodic
+      // rather than one clean sine a viewer can lock onto and recognize —
+      // real motion rarely looks like a single wave.
+      var _rFreq=1.0+audioIntensity*1.3+transientPulse*2.2;
       var _wp=(tx+ty+tz)*0.5;
-      var rx=Math.sin(_wp+t*1.7);
-      var ry=Math.sin(_wp*1.31+t*1.7*0.83+2.09);
-      var rz=Math.sin(_wp*0.76+t*1.7*1.19+4.18);
+      var rx=Math.sin(_wp+t*_rFreq)+Math.sin(_wp*0.53+t*_rFreq*0.34+1.7)*0.35;
+      var ry=Math.sin(_wp*1.31+t*_rFreq*0.83+2.09)+Math.sin(_wp*0.41+t*_rFreq*0.58+3.4)*0.35;
+      var rz=Math.sin(_wp*0.76+t*_rFreq*1.19+4.18)+Math.sin(_wp*0.62+t*_rFreq*0.46+0.6)*0.35;
       vx[i]+=rx*jit;vy[i]+=ry*jit;vz[i]+=rz*jit;
       if(transientPulse>0.02&&isAlbumMode()){
         // a real outward kick on a real transient — pushed away from the
