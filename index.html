@@ -463,6 +463,16 @@ for(var i=0;i<N;i++){
   tr[i]=cr[i];tg[i]=cg2[i];tb[i]=cb[i];
   psize[i]=1+Math.random()*3;
 }
+// Real perf fix: psize never changes after this point (nothing in the
+// entire file writes to it again), but the render loop was re-uploading
+// this whole 100,000-float buffer to the GPU via bufferData every single
+// frame regardless — 400KB of pointless upload, 60 times a second.
+// Uploading the actual data once here; render() still rebinds the buffer
+// and re-issues the attrib pointer per frame (cheap, and still needed
+// since other draw calls touch the same attribute slot), it just never
+// re-sends the bytes.
+gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);
+gl.bufferData(gl.ARRAY_BUFFER,psize,gl.STATIC_DRAW);
 
 // ═══ REAL AUDIO ENVELOPES — every one of the 46 tracks, measured not guessed ═══
 // RMS (loudness) + spectral centroid (brightness) per track, batch-analyzed from
@@ -776,6 +786,13 @@ var lorenzX=new Float32Array(N),lorenzY=new Float32Array(N),lorenzZ=new Float32A
   }
 })();
 
+// Real perf fix: shapeTarget() used to `return[tx,ty,tz]` — a brand-new
+// array literal allocated on every call. Called once per particle, every
+// simStep, so 100,000 allocations per step (up to 5 steps per frame under
+// load, per the catch-up loop below) — real, sustained GC pressure, a
+// legitimate cause of stutter on a per-frame hot path this size. Writing
+// into these three scratch vars instead means zero allocation per call.
+var _stX=0,_stY=0,_stZ=0;
 function shapeTarget(i,s){
   var fi=i/N,tx,ty,tz;
   switch(s){
@@ -1132,7 +1149,7 @@ function shapeTarget(i,s){
       break;
     default:tx=0;ty=0;tz=0;
   }
-  return[tx,ty,tz];
+  _stX=tx;_stY=ty;_stZ=tz;
 }
 
 // ═══ PHYSICS ═══
@@ -1145,6 +1162,14 @@ function update(){
   _acc+=dt;
   var steps=0;
   while(_acc>=0.016&&steps<5){simStep();_acc-=0.016;steps++;}
+  // If a device genuinely can't do 5 sim steps in a frame, the backlog
+  // used to just keep growing forever (nothing ever drained it below the
+  // 5-step cap) — meaning the visual would permanently drift further and
+  // further behind real time the longer the tab stayed open on a slow
+  // machine. Standard fixed-timestep fix: drop the excess instead of
+  // carrying an ever-growing debt. Trades perfect catch-up for graceful
+  // degradation (time skips forward once, doesn't accumulate a leak).
+  if(_acc>0.1)_acc=0;
 }
 function simStep(){
   t+=0.016;
@@ -1348,7 +1373,7 @@ function simStep(){
   var driftOffset=Math.floor(t*11)%N;
   // Pass 1: every particle's target, computed exactly once — same total
   // shapeTarget() call count as before self-coupling ever existed.
-  for(var i=0;i<N;i++){ var _t0=shapeTarget(i,shape); _tgtX[i]=_t0[0]; _tgtY[i]=_t0[1]; _tgtZ[i]=_t0[2]; }
+  for(var i=0;i<N;i++){ shapeTarget(i,shape); _tgtX[i]=_stX; _tgtY[i]=_stY; _tgtZ[i]=_stZ; }
   // Pass 2: self-coupling, reading the buffer instead of ever recomputing a
   // partner's target. Pure typed-array arithmetic, no function calls, no
   // allocation — can now afford to couple every particle, not just 1-in-8.
@@ -1665,7 +1690,8 @@ function render(){
     gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);
-    gl.bufferData(gl.ARRAY_BUFFER,psize,gl.STATIC_DRAW);
+    // No bufferData here — psize never changes after init; see the
+    // one-time upload right after it's populated, above.
     gl.enableVertexAttribArray(aSize);
     gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
 
