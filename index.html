@@ -957,6 +957,64 @@ function murmurationPath(){
   return path;
 }
 
+// Third companion-mesh primitive: a general parametric surface (u,v)->
+// (x,y,z), for shapes that are a true 2D surface but NOT an axis-aligned
+// height field (buildSurfaceGrid assumes flat x/z with y as height — Heart's
+// cardioid-of-revolution needs all three coordinates as functions of both
+// parameters). Normals via cross product of the two finite-difference
+// tangent directions, not a height gradient.
+function buildParametricSurface(uRes,vRes,posFn,colFn,startW){
+  var w=startW||0;
+  var P=new Array(uRes+1);
+  for(var ui=0;ui<=uRes;ui++){
+    P[ui]=new Array(vRes+1);
+    var u=ui/uRes;
+    for(var vi=0;vi<=vRes;vi++) P[ui][vi]=posFn(u,vi/vRes);
+  }
+  function normAt(ui,vi){
+    var uil=Math.max(0,ui-1),uir=Math.min(uRes,ui+1);
+    var vil=Math.max(0,vi-1),vir=Math.min(vRes,vi+1);
+    var pu0=P[uil][vi],pu1=P[uir][vi],pv0=P[ui][vil],pv1=P[ui][vir];
+    var tux=pu1[0]-pu0[0],tuy=pu1[1]-pu0[1],tuz=pu1[2]-pu0[2];
+    var tvx=pv1[0]-pv0[0],tvy=pv1[1]-pv0[1],tvz=pv1[2]-pv0[2];
+    var nx=tuy*tvz-tuz*tvy,ny=tuz*tvx-tux*tvz,nz=tux*tvy-tuy*tvx;
+    var nl=Math.hypot(nx,ny,nz)||1;
+    return [nx/nl,ny/nl,nz/nl];
+  }
+  for(var ui=0;ui<uRes;ui++){
+    for(var vi=0;vi<vRes;vi++){
+      var p00=P[ui][vi],p10=P[ui+1][vi],p01=P[ui][vi+1],p11=P[ui+1][vi+1];
+      var n00=normAt(ui,vi),n10=normAt(ui+1,vi),n01=normAt(ui,vi+1),n11=normAt(ui+1,vi+1);
+      var col=colFn(ui/uRes,vi/vRes);
+      var tris=[[p00,p10,p01,n00,n10,n01],[p10,p11,p01,n10,n11,n01]];
+      for(var ti=0;ti<2;ti++){
+        var T=tris[ti];
+        for(var vvi=0;vvi<3;vvi++){
+          var p=T[vvi],nn=T[vvi+3];
+          tubePos[w*3]=p[0];tubePos[w*3+1]=p[1];tubePos[w*3+2]=p[2];
+          tubeNorm[w*3]=nn[0];tubeNorm[w*3+1]=nn[1];tubeNorm[w*3+2]=nn[2];
+          tubeCol[w*3]=col[0];tubeCol[w*3+1]=col[1];tubeCol[w*3+2]=col[2];
+          w++;
+        }
+      }
+    }
+  }
+  tubeVertCount=w;
+  return w;
+}
+
+// Shape 14 companion — Heart's exact cardioid-of-revolution surface. hR
+// depends only on hU (the cardioid profile); hV sweeps it around like
+// latitude. Solid surface using the identical formula shapeTarget case 14
+// uses, including the resting heartbeat pulse.
+function heartSurfacePos(u,v){
+  var hU=u*Math.PI*2,hV=v*Math.PI;
+  var hR=1.5*(1-Math.cos(hU));
+  var restBeat=1+0.05*Math.sin(t*1.15)+0.025*Math.sin(t*2.3+1.1);
+  var beat=restBeat*(1+beatPulse*0.26);
+  return [hR*Math.sin(hV)*Math.cos(hU)*1.2*beat,(-hR*Math.cos(hV)*1.5+1)*beat,hR*Math.sin(hV)*Math.sin(hU)*1.2*beat];
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1646,6 +1704,14 @@ function simStep(){
         // an actual shock front over a faint remnant interior.
         var boost12=0.4+Math.pow(fi,0.4)*0.6;
         tr[i]=Math.min(1,pal[0]*v*boost12);tg[i]=Math.min(1,pal[1]*v*boost12);tb[i]=Math.min(1,pal[2]*v*boost12);
+      } else if(shape===14){
+        // Heart: hR depends only on hU, shared identically by the companion
+        // surface and every particle at that hU — bright at the full round
+        // base, dim toward the cleft at the top where hR shrinks to 0.
+        var hU14=fi*Math.PI*2;
+        var hR14=1.5*(1-Math.cos(hU14));
+        var boost14=0.5+(hR14/3)*0.5;
+        tr[i]=Math.min(1,pal[0]*v*boost14);tg[i]=Math.min(1,pal[1]*v*boost14);tb[i]=Math.min(1,pal[2]*v*boost14);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -2082,6 +2148,15 @@ function render(){
       var _pcol13=PALETTES[13];
       buildTubeAlongPath(murmurationPath(),0.05,7,function(u){
         var br=0.55+u*0.45; return [_pcol13[0]*br,_pcol13[1]*br,_pcol13[2]*br];
+      },0);
+      drawCompanionMesh();
+    }
+    if(shape===14 && morphT>=1){
+      // Heart's solid cardioid-of-revolution surface, same heartbeat pulse.
+      var _pcol14=PALETTES[14];
+      buildParametricSurface(56,28,heartSurfacePos,function(u,v){
+        var hR=1.5*(1-Math.cos(u*Math.PI*2));
+        var br=0.5+(hR/3)*0.5; return [_pcol14[0]*br,_pcol14[1]*br,_pcol14[2]*br];
       },0);
       drawCompanionMesh();
     }
