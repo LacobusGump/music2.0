@@ -1047,6 +1047,46 @@ function blackHoleDiskPath(){
   return path;
 }
 
+// Shape 16 companion — Circuit's solid copper traces underneath the glitch.
+// James's own benchmark shape ("looks great with the music"), and unlike
+// every other shape it already has a hand-tuned, real per-frame animation
+// (growth front + acid color cycling, see the shape===16 block in the main
+// physics loop) that runs every frame, not the usual once-at-burst target
+// color. Deliberately NOT touching that logic — it's already right and
+// this session has no way to visually re-verify it. The companion is
+// additive only: one representative trace per lane (26, not all 26x4
+// layers — kept modest on purpose, this shape doesn't need more clutter),
+// flattened to the board plane, colored by the same live audioBrightness
+// hue-cycle the particles use, so they visibly cycle color together
+// without the companion ever touching the particles' own update code.
+var CIRCUIT_SEGS=44,CIRCUIT_LANES=26;
+function circuitTracePath(lane){
+  var horiz=lane%2===0;
+  var laneCoord=(lane/CIRCUIT_LANES-0.5)*6.4;
+  var path=new Array(CIRCUIT_SEGS+1);
+  for(var i=0;i<=CIRCUIT_SEGS;i++){
+    var alongFrac=i/CIRCUIT_SEGS;
+    var along=(alongFrac-0.5)*6.4;
+    var seg=Math.floor(alongFrac*11),jogSign=(seg%2===0)?1:-1;
+    var jogAmt=jogSign*0.22*(0.5+audioIntensity*0.9);
+    var x,y;
+    if(horiz){ x=along; y=laneCoord+jogAmt; } else { x=laneCoord+jogAmt; y=along; }
+    path[i]=[x,y,0];
+  }
+  return path;
+}
+function circuitTraceColor(lane){
+  var hueSp=0.3+audioBrightness*0.9;
+  var hue=(lane*0.044+t*hueSp)%6.283;
+  var sat=0.15+0.85*audioBrightness;
+  var baseGray=0.25+0.15*audioIntensity;
+  return [
+    baseGray+((0.4+0.6*(0.5+0.5*Math.sin(hue)))-baseGray)*sat,
+    baseGray+((0.4+0.6*(0.5+0.5*Math.sin(hue+2.094)))-baseGray)*sat,
+    baseGray+((0.4+0.6*(0.5+0.5*Math.sin(hue+4.189)))-baseGray)*sat
+  ];
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -2216,6 +2256,19 @@ function render(){
         var br=0.7-u*0.35; return [_pcol15[0]*br,_pcol15[1]*br,_pcol15[2]*br];
       },_w15);
       tubeVertCount=_w15;
+      drawCompanionMesh();
+    }
+    if(shape===16 && morphT>=1){
+      // Circuit's solid copper traces, one representative per lane. Colored
+      // by the same live audioBrightness hue-cycle the particle glitch uses
+      // — synced by sharing the driving signal, without touching the
+      // particles' own hand-tuned per-frame growth/color code at all.
+      var _w16=0;
+      for(var _lane=0;_lane<CIRCUIT_LANES;_lane++){
+        var _lcol=circuitTraceColor(_lane);
+        _w16=buildTubeAlongPath(circuitTracePath(_lane),0.022,4,function(){ return _lcol; },_w16);
+      }
+      tubeVertCount=_w16;
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
