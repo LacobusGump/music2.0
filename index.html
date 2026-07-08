@@ -643,10 +643,19 @@ var TUBE_SIDES=6;
 var TUBE_MAXV=PIPE_N*(PIPE_HIST-1)*TUBE_SIDES*6;
 var tubePos=new Float32Array(TUBE_MAXV*3), tubeNorm=new Float32Array(TUBE_MAXV*3), tubeCol=new Float32Array(TUBE_MAXV*3);
 var tubeVertCount=0;
+// Ring scratch buffers — allocated ONCE here, overwritten in place every call.
+// The previous version allocated 240 x 6 fresh Array(6) ring buffers PLUS a
+// 6-element array literal per triangle pair — ~61,000 small object
+// allocations every single frame this shape was on screen. That's real GC
+// churn, and it's exactly the kind of thing that shows up as periodic
+// stutter/glitch: fine most of the time, then a pause while the collector
+// catches up, right as Pipes cycles through. Flat typed arrays + fully
+// unrolled vertex writes below produce zero allocations per call.
+var _ringN=PIPE_HIST*TUBE_SIDES;
+var ringPX=new Float32Array(_ringN),ringPY=new Float32Array(_ringN),ringPZ=new Float32Array(_ringN);
+var ringNX=new Float32Array(_ringN),ringNY=new Float32Array(_ringN),ringNZ=new Float32Array(_ringN);
 function buildPipeTubeGeometry(){
   var w=0;
-  var ringPX=new Array(PIPE_HIST),ringPY=new Array(PIPE_HIST),ringPZ=new Array(PIPE_HIST),ringNX=new Array(PIPE_HIST),ringNY=new Array(PIPE_HIST),ringNZ=new Array(PIPE_HIST);
-  for(var i=0;i<PIPE_HIST;i++){ ringPX[i]=new Array(TUBE_SIDES);ringPY[i]=new Array(TUBE_SIDES);ringPZ[i]=new Array(TUBE_SIDES);ringNX[i]=new Array(TUBE_SIDES);ringNY[i]=new Array(TUBE_SIDES);ringNZ[i]=new Array(TUBE_SIDES); }
   var tubeRadius=0.05+audioIntensity*0.03;
   for(var p=0;p<PIPE_N;p++){
     var hue=(p/PIPE_N)*6.283+t*0.15;
@@ -655,30 +664,52 @@ function buildPipeTubeGeometry(){
       var readIdx=(pipeWrite[p]+i)%PIPE_HIST;
       var ax=pipeAxis[p][readIdx];
       var cx=pipeX[p][readIdx]*1.4, cy=pipeY[p][readIdx]*1.4, cz=pipeZ[p][readIdx]*1.4;
+      var rowBase=i*TUBE_SIDES;
       for(var s=0;s<TUBE_SIDES;s++){
         var ang=(s/TUBE_SIDES)*6.28318530718;
         var ca=Math.cos(ang), sa=Math.sin(ang);
         var nx=0,ny=0,nz=0;
         if(ax===0){ ny=ca; nz=sa; } else if(ax===1){ nx=ca; nz=sa; } else { nx=ca; ny=sa; }
-        ringPX[i][s]=cx+nx*tubeRadius; ringPY[i][s]=cy+ny*tubeRadius; ringPZ[i][s]=cz+nz*tubeRadius;
-        ringNX[i][s]=nx; ringNY[i][s]=ny; ringNZ[i][s]=nz;
+        var ri=rowBase+s;
+        ringPX[ri]=cx+nx*tubeRadius; ringPY[ri]=cy+ny*tubeRadius; ringPZ[ri]=cz+nz*tubeRadius;
+        ringNX[ri]=nx; ringNY[ri]=ny; ringNZ[ri]=nz;
       }
     }
     for(var i=0;i<PIPE_HIST-1;i++){
       var recency=i/(PIPE_HIST-1); // read order is oldest-first — matches shapeTarget case 21
       var br=0.3+0.7*recency;
       var cr0=baseR*br, cg0=baseG*br, cb0=baseB*br;
+      var rowA=i*TUBE_SIDES, rowB=(i+1)*TUBE_SIDES;
       for(var s=0;s<TUBE_SIDES;s++){
         var s1=(s+1)%TUBE_SIDES;
-        // two triangles per side, per ring segment: A,B,C then B,D,C
-        var verts=[[i,s],[i,s1],[i+1,s],[i,s1],[i+1,s1],[i+1,s]];
-        for(var vi=0;vi<6;vi++){
-          var ri=verts[vi][0], rs=verts[vi][1];
-          tubePos[w*3]=ringPX[ri][rs]; tubePos[w*3+1]=ringPY[ri][rs]; tubePos[w*3+2]=ringPZ[ri][rs];
-          tubeNorm[w*3]=ringNX[ri][rs]; tubeNorm[w*3+1]=ringNY[ri][rs]; tubeNorm[w*3+2]=ringNZ[ri][rs];
-          tubeCol[w*3]=cr0; tubeCol[w*3+1]=cg0; tubeCol[w*3+2]=cb0;
-          w++;
-        }
+        // two triangles per side, per ring segment: A,B,C then B,D,C — same
+        // vertex order as the old [[i,s],[i,s1],[i+1,s],[i,s1],[i+1,s1],[i+1,s]]
+        // literal, just written directly instead of built as an array to loop over.
+        var iA=rowA+s, iB=rowA+s1, iC=rowB+s, iD=rowB+s1;
+
+        tubePos[w*3]=ringPX[iA];tubePos[w*3+1]=ringPY[iA];tubePos[w*3+2]=ringPZ[iA];
+        tubeNorm[w*3]=ringNX[iA];tubeNorm[w*3+1]=ringNY[iA];tubeNorm[w*3+2]=ringNZ[iA];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
+
+        tubePos[w*3]=ringPX[iB];tubePos[w*3+1]=ringPY[iB];tubePos[w*3+2]=ringPZ[iB];
+        tubeNorm[w*3]=ringNX[iB];tubeNorm[w*3+1]=ringNY[iB];tubeNorm[w*3+2]=ringNZ[iB];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
+
+        tubePos[w*3]=ringPX[iC];tubePos[w*3+1]=ringPY[iC];tubePos[w*3+2]=ringPZ[iC];
+        tubeNorm[w*3]=ringNX[iC];tubeNorm[w*3+1]=ringNY[iC];tubeNorm[w*3+2]=ringNZ[iC];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
+
+        tubePos[w*3]=ringPX[iB];tubePos[w*3+1]=ringPY[iB];tubePos[w*3+2]=ringPZ[iB];
+        tubeNorm[w*3]=ringNX[iB];tubeNorm[w*3+1]=ringNY[iB];tubeNorm[w*3+2]=ringNZ[iB];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
+
+        tubePos[w*3]=ringPX[iD];tubePos[w*3+1]=ringPY[iD];tubePos[w*3+2]=ringPZ[iD];
+        tubeNorm[w*3]=ringNX[iD];tubeNorm[w*3+1]=ringNY[iD];tubeNorm[w*3+2]=ringNZ[iD];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
+
+        tubePos[w*3]=ringPX[iC];tubePos[w*3+1]=ringPY[iC];tubePos[w*3+2]=ringPZ[iC];
+        tubeNorm[w*3]=ringNX[iC];tubeNorm[w*3+1]=ringNY[iC];tubeNorm[w*3+2]=ringNZ[iC];
+        tubeCol[w*3]=cr0;tubeCol[w*3+1]=cg0;tubeCol[w*3+2]=cb0;w++;
       }
     }
   }
@@ -1170,7 +1201,16 @@ function update(){
   if(dt>0.1)dt=0.1;
   _acc+=dt;
   var steps=0;
-  while(_acc>=0.016&&steps<5){simStep();_acc-=0.016;steps++;}
+  // Capped at 3, not 5: each simStep() recomputes shapeTarget() for every
+  // particle (100k desktop), so 5 catch-up steps in one rAF frame means up to
+  // 500,000 shapeTarget calls in that single frame — a real spike, and
+  // exactly the kind of thing that reads as a stutter/glitch right when the
+  // tab regains focus or after any GC pause, on any shape. 3 steps still
+  // recovers a single dropped frame (48ms) without carrying the full 5-step
+  // burst cost; a device that's sustained-slow will drift slightly behind
+  // real time instead (already bounded below by the _acc>0.1 reset) rather
+  // than spiking every frame trying to fully catch up.
+  while(_acc>=0.016&&steps<3){simStep();_acc-=0.016;steps++;}
   // If a device genuinely can't do 5 sim steps in a frame, the backlog
   // used to just keep growing forever (nothing ever drained it below the
   // 5-step cap) — meaning the visual would permanently drift further and
