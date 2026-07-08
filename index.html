@@ -594,21 +594,40 @@ var PIPE_N=7, PIPE_HIST=240, PIPE_BOUND=3.0;
 var pipeX=[],pipeY=[],pipeZ=[],pipeAxis=[],pipeWrite=[];
 var pipeCurX=[],pipeCurY=[],pipeCurZ=[],pipeCurAxis=[],pipeSeg=[];
 var AXES=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+// Each pipe's own fixed personality (0.7-1.3x) — calmer or jumpier than its
+// neighbors, permanently, not just per-turn noise. Combines with the shared
+// "mood" below so pipes keep reading as distinct individuals even as the
+// whole group's cadence drifts together.
+var pipeCharacter=[];
 for(var _pi=0;_pi<PIPE_N;_pi++){
   pipeX.push(new Float32Array(PIPE_HIST));pipeY.push(new Float32Array(PIPE_HIST));pipeZ.push(new Float32Array(PIPE_HIST));
   pipeAxis.push(new Uint8Array(PIPE_HIST));
   pipeWrite.push(0);
   pipeCurX.push((Math.random()-0.5)*PIPE_BOUND);pipeCurY.push((Math.random()-0.5)*PIPE_BOUND);pipeCurZ.push((Math.random()-0.5)*PIPE_BOUND);
   var a0=(Math.random()*6)|0; pipeCurAxis.push(a0); pipeSeg.push(0);
+  pipeCharacter.push(0.7+((_pi*53)%100)/100*0.6);
   for(var _fillJ=0;_fillJ<PIPE_HIST;_fillJ++){ pipeX[_pi][_fillJ]=pipeCurX[_pi]; pipeY[_pi][_fillJ]=pipeCurY[_pi]; pipeZ[_pi][_fillJ]=pipeCurZ[_pi]; pipeAxis[_pi][_fillJ]=a0>>1; }
 }
 function stepPipes(){
   var speed=0.028+audioIntensity*0.05; // louder song, faster-crawling pipes
+  // Real evolution over the shape's OWN lifetime, not just per-pipe variety —
+  // James: "it doesn't evolve, it gets a bit boring... i like that not all
+  // are the same." Before this, turnEvery and the roam radius were fixed
+  // constants forever, so a multi-minute song sitting on Pipes never actually
+  // went anywhere: same rhythm the whole time, just staggered per pipe.
+  // `mood` slowly breathes the whole group between long calm glides and
+  // tight nervous weaving (~70s period); `roam` slowly breathes how much
+  // room they have to move in (~140s period, phase-offset from mood so the
+  // two don't peak together). shapeTime is seconds since THIS shape became
+  // active, so every song that lands on Pipes gets its own fresh arc.
+  var mood=0.5+0.5*Math.sin(shapeTime*0.09);
+  var roam=PIPE_BOUND*(0.72+0.28*Math.sin(shapeTime*0.045+1.3));
   for(var p=0;p<PIPE_N;p++){
     pipeSeg[p]++;
-    var turnEvery=8+((p*37)%9); // stagger per-pipe so they don't all turn in lockstep
+    var turnEvery=Math.round((6+((p*37)%9))*(1.6-mood*0.9)*pipeCharacter[p]);
+    if(turnEvery<3)turnEvery=3;
     var x=pipeCurX[p],y=pipeCurY[p],z=pipeCurZ[p],ax=pipeCurAxis[p];
-    var outOfBounds=Math.abs(x)>PIPE_BOUND||Math.abs(y)>PIPE_BOUND||Math.abs(z)>PIPE_BOUND;
+    var outOfBounds=Math.abs(x)>roam||Math.abs(y)>roam||Math.abs(z)>roam;
     if(outOfBounds||pipeSeg[p]>=turnEvery){
       pipeSeg[p]=0;
       var choices=[0,1,2,3,4,5].filter(function(c){return (c>>1)!==(ax>>1);}); // perpendicular only, no reversal-in-place
