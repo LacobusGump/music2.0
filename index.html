@@ -371,7 +371,17 @@ void main(){
   float rim=pow(1.0-max(dot(N,V),0.0),2.2);
   vec3 base=vC*(0.3+diff*0.55+fill);
   vec3 color=base+vec3(1.0,0.97,0.9)*spec*1.3+vC*rim*0.6;
-  gl_FragColor=vec4(color,1.0);
+  // Real fix for "two layers, the particle glow underneath can't be seen":
+  // this mesh used to draw fully opaque, and particles draw AFTER it using
+  // a MAX blend equation (see the points draw) — MAX(bright opaque mesh
+  // pixel, dim particle) keeps the mesh almost everywhere, so the particle
+  // cloud only showed in the gaps the mesh didn't cover. Real fresnel-style
+  // transparency instead (more opaque at grazing/edge angles like real
+  // glass, more see-through face-on) — darker where the camera looks
+  // straight at it, so particles' own brightness can actually win the MAX
+  // comparison there, while edges still read as a solid, lit form.
+  float alpha=0.35+rim*0.45;
+  gl_FragColor=vec4(color,alpha);
 }`;
 var tubeProg=gl.createProgram();
 gl.attachShader(tubeProg,compile(gl.VERTEX_SHADER,tVsrc));
@@ -761,7 +771,12 @@ function drawCompanionMesh(mvp,camDist){
   gl.useProgram(tubeProg);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
   gl.clear(gl.DEPTH_BUFFER_BIT);
-  gl.disable(gl.BLEND);
+  // Real fresnel-style transparency now (see tFsrc), not opaque — an opaque
+  // mesh drawn before the MAX-blended particle points meant the particles
+  // almost never won that comparison against an already-bright pixel, so
+  // they only showed in whatever gaps the mesh didn't cover. Standard
+  // alpha blending here lets the mesh's own translucency actually apply.
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
   gl.uniformMatrix4fv(tUMVP,false,mvp);
   gl.uniform3f(tULightDir,0.5,0.85,0.35);
   gl.uniform3f(tUEyePos,0,0,camDist*4);
