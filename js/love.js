@@ -1,19 +1,8 @@
 /* love.js — page routing helpers.
    The love-bug filter is retired. The zero was never love.
-   It's a cold zero, like math is. No paint on it.
-   The two routing functions below are unrelated infrastructure and stay. */
+   It's a cold zero, like math is. No paint on it. */
 
 (function(){
-
-  // Homepage routing: Research opens the handrail first, atlas stays one click away.
-  function routeHomepageResearchDoor(){
-    var path = window.location.pathname || '/';
-    if (path !== '/' && path !== '/index.html') return;
-    var links = document.querySelectorAll('a.door[href="/research/"]');
-    for (var i = 0; i < links.length; i++) {
-      links[i].setAttribute('href', '/research/doors/');
-    }
-  }
 
   // Theory routing: keep the electroweak-scale result visible without rewriting the long article.
   function addTheoryElectroweakBridge(){
@@ -56,7 +45,6 @@
   }
 
   function run(){
-    routeHomepageResearchDoor();
     addTheoryElectroweakBridge();
   }
 
