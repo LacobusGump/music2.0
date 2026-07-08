@@ -1015,6 +1015,38 @@ function heartSurfacePos(u,v){
   return [hR*Math.sin(hV)*Math.cos(hU)*1.2*beat,(-hR*Math.cos(hV)*1.5+1)*beat,hR*Math.sin(hV)*Math.sin(hU)*1.2*beat];
 }
 
+// Shape 15 companion — Black hole's three real structures, each solid.
+// Event horizon: a small sphere, same Love Forgets Best flash as the
+// particles. Jets: the exact central axis, radius tapering to a point at
+// the core exactly like the particle beam does — buildTubeAlongPath's
+// radius-function support fits this directly, no new geometry needed.
+// Accretion disk: like Torus/Murmuration, this regime has no per-particle
+// scatter term — particles already trace one exact warped spiral curve, so
+// the companion traces that same curve directly.
+function blackHoleHorizonPos(u,v){
+  var bhA=u*Math.PI*2,bhB=v*Math.PI;
+  var bhFlash=(isAlbumMode()&&window._curTrackFile==='love_forgets_best.mp3')?Math.max(0,audioIntensity-0.6)*2.2:0;
+  var bhRad=0.4*(1+bhFlash);
+  return [Math.sin(bhB)*Math.cos(bhA)*bhRad,Math.sin(bhB)*Math.sin(bhA)*bhRad,Math.cos(bhB)*bhRad];
+}
+function blackHoleJetPath(){
+  var segs=60,path=new Array(segs+1);
+  for(var i=0;i<=segs;i++) path[i]=[0,-2+4*(i/segs),0];
+  return path;
+}
+function blackHoleJetRadius(u){ return 0.1+Math.abs(-2+4*u)*0.05; }
+function blackHoleDiskPath(){
+  var segs=200,path=new Array(segs+1);
+  for(var k=0;k<=segs;k++){
+    var fi=0.15+0.85*(k/segs);
+    var diskA=fi*Math.PI*2*15+t*0.3;
+    var diskR=0.8+Math.pow(fi-0.15,0.5)*4;
+    var warp=Math.sin(diskA*2+t)*0.15*diskR;
+    path[k]=[Math.cos(diskA)*diskR,warp,Math.sin(diskA)*diskR];
+  }
+  return path;
+}
+
 // River Doesn't — a real, lyric-driven dual system, not a decoration next to
 // the words. "The river doesn't remember every shape it crossed" is a real
 // physics fact: turbulent advection destroys information about a fluid's
@@ -1712,6 +1744,16 @@ function simStep(){
         var hR14=1.5*(1-Math.cos(hU14));
         var boost14=0.5+(hR14/3)*0.5;
         tr[i]=Math.min(1,pal[0]*v*boost14);tg[i]=Math.min(1,pal[1]*v*boost14);tb[i]=Math.min(1,pal[2]*v*boost14);
+      } else if(shape===15){
+        // Black hole: brightness follows the same regime/radius quantities
+        // the companion mesh is built from — horizon always brightest, jet
+        // brightest at its tapered tips, disk brightest near the horizon
+        // and dimming outward, like real accretion-disk temperature.
+        var boost15;
+        if(fi<0.05){ boost15=1.0; }
+        else if(fi<0.15){ var jetH15=(fi-0.05)*40-2; boost15=0.5+Math.min(1,Math.abs(jetH15)/2)*0.5; }
+        else { var diskR15=0.8+Math.pow(fi-0.15,0.5)*4; boost15=0.4+Math.max(0,1-(diskR15-0.8)/4.8)*0.6; }
+        tr[i]=Math.min(1,pal[0]*v*boost15);tg[i]=Math.min(1,pal[1]*v*boost15);tb[i]=Math.min(1,pal[2]*v*boost15);
       } else {
         tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
       }
@@ -2158,6 +2200,22 @@ function render(){
         var hR=1.5*(1-Math.cos(u*Math.PI*2));
         var br=0.5+(hR/3)*0.5; return [_pcol14[0]*br,_pcol14[1]*br,_pcol14[2]*br];
       },0);
+      drawCompanionMesh();
+    }
+    if(shape===15 && morphT>=1){
+      // Black hole's three solid structures, combined into one mesh: event
+      // horizon sphere, jet axis, accretion disk spiral.
+      var _pcol15=PALETTES[15];
+      var _w15=buildParametricSurface(20,10,blackHoleHorizonPos,function(){
+        return [1.0,0.97,0.9]; // horizon reads white-hot, not the disk's tint
+      },0);
+      _w15=buildTubeAlongPath(blackHoleJetPath(),blackHoleJetRadius,6,function(u){
+        var br=0.5+Math.abs(u-0.5)*1.0; return [_pcol15[0]*br,_pcol15[1]*br,_pcol15[2]*br];
+      },_w15);
+      _w15=buildTubeAlongPath(blackHoleDiskPath(),0.04,7,function(u){
+        var br=0.7-u*0.35; return [_pcol15[0]*br,_pcol15[1]*br,_pcol15[2]*br];
+      },_w15);
+      tubeVertCount=_w15;
       drawCompanionMesh();
     }
     gl.uniformMatrix4fv(uMVP,false,mvp);
