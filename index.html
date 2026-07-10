@@ -526,6 +526,20 @@ function updateKR(){
 var SHAPES=31;
 var shape=0,morphT=1,shapeTime=0,burstT=0;
 var SHAPE_DURATION=8;
+// Real fix for the visible stutter-then-snap right at every shape change: the
+// burst kick + target-color assignment used to run as two full N-particle
+// loops synchronously inside the ONE simStep() that detects the change — on
+// top of the shapeTarget/self-couple/integrate passes every frame already
+// pays, that frame did 6 full passes over N instead of 4, right when the
+// fixed-timestep accumulator (see update()) can also be mid-catch-up. The
+// spike reads as "struggles to load," and the accumulator's own >0.1s reset
+// afterward reads as the visual "snapping back to smooth" — it isn't
+// recovering, it's skipping the backlog. Neither loop needs to land in one
+// frame: the burst is a decaying impulse (damp=0.97 for the whole burstT
+// window) and colors already ease toward target at 0.03/frame (~1s to
+// settle), so spreading both over a handful of frames is invisible. Chunked
+// here, outside the dt-budgeted simStep, driven once per real rendered frame.
+var _initIdx=N,_initChunk=Math.ceil(N/6); // _initIdx>=N means idle, nothing pending
 
 var NAMES=['the spiral','helix','torus','wave','orbitals','prime spiral',
   'möbius','lorenz','galaxy','tree','klein','tesseract',
@@ -1369,30 +1383,8 @@ function simStep(){
   if((wantShape>=0&&wantShape!==shape)||(wantShape<0&&(forceNext||shapeTime>SHAPE_DURATION))){
     forceNext=false;
     burstT=0.5;
-    // Burst
-    for(var i=0;i<N;i++){
-      var bx=px[i],by=py[i],bz=pz[i];
-      var dist=Math.sqrt(bx*bx+by*by+bz*bz)+0.01;
-      vx[i]+=(bx/dist)*0.12;vy[i]+=(by/dist)*0.12;vz[i]+=(bz/dist)*0.12;
-    }
     shape=(wantShape>=0?wantShape:(shape+1)%SHAPES);morphT=0;shapeTime=0;
-    // Target colors
-    var pal=PALETTES[shape];
-    for(var i=0;i<N;i++){
-      var fi=i/N,v=0.7+fi*0.6;
-      if(shape===0){
-        // The Spiral: color by height on the cone
-        var h0=Math.pow(fi,0.7);
-        if(h0<0.15){tr[i]=0.08+h0;tg[i]=0.03+h0*0.3;tb[i]=0.2+h0;}
-        else if(h0<0.35){var t2=(h0-0.15)/0.2;tr[i]=0.1+t2*0.1;tg[i]=0.25+t2*0.2;tb[i]=0.45-t2*0.1;}
-        else if(h0<0.6){var t2=(h0-0.35)/0.25;tr[i]=0.2+t2*0.6;tg[i]=0.45+t2*0.2;tb[i]=0.35-t2*0.1;}
-        else{var t2=(h0-0.6)/0.4;tr[i]=0.78+t2*0.2;tg[i]=0.64+t2*0.3;tb[i]=0.25+t2*0.6;}
-      } else {
-        tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
-      }
-      if(shape===5&&_isPrime[i+1]){tr[i]=0.86;tg[i]=0.76;tb[i]=0.39;}
-      if(shape===5&&!_isPrime[i+1]){tr[i]=0.23;tg[i]=0.2;tb[i]=0.16;}
-    }
+    _initIdx=0; // queue burst+color for this new shape, processed a chunk per rendered frame (see runShapeInit)
   }
 
   if(morphT<1)morphT=Math.min(1,morphT+0.016*(flashMorph?2.6:0.6));
@@ -1653,6 +1645,34 @@ function mat4_mul(a,b){
   return r;
 }
 
+// One chunk of the new shape's burst-kick + target-color assignment, run once
+// per rendered frame (not per simStep, so the 3x fixed-timestep catch-up
+// can't multiply it) until _initIdx reaches N. See the note by _initIdx above.
+function runShapeInit(){
+  if(_initIdx>=N) return;
+  var end=Math.min(N,_initIdx+_initChunk);
+  var pal=PALETTES[shape];
+  for(var i=_initIdx;i<end;i++){
+    var bx=px[i],by=py[i],bz=pz[i];
+    var dist=Math.sqrt(bx*bx+by*by+bz*bz)+0.01;
+    vx[i]+=(bx/dist)*0.12;vy[i]+=(by/dist)*0.12;vz[i]+=(bz/dist)*0.12;
+    var fi=i/N,v=0.7+fi*0.6;
+    if(shape===0){
+      // The Spiral: color by height on the cone
+      var h0=Math.pow(fi,0.7);
+      if(h0<0.15){tr[i]=0.08+h0;tg[i]=0.03+h0*0.3;tb[i]=0.2+h0;}
+      else if(h0<0.35){var t2=(h0-0.15)/0.2;tr[i]=0.1+t2*0.1;tg[i]=0.25+t2*0.2;tb[i]=0.45-t2*0.1;}
+      else if(h0<0.6){var t2=(h0-0.35)/0.25;tr[i]=0.2+t2*0.6;tg[i]=0.45+t2*0.2;tb[i]=0.35-t2*0.1;}
+      else{var t2=(h0-0.6)/0.4;tr[i]=0.78+t2*0.2;tg[i]=0.64+t2*0.3;tb[i]=0.25+t2*0.6;}
+    } else {
+      tr[i]=Math.min(1,pal[0]*v);tg[i]=Math.min(1,pal[1]*v);tb[i]=Math.min(1,pal[2]*v);
+    }
+    if(shape===5&&_isPrime[i+1]){tr[i]=0.86;tg[i]=0.76;tb[i]=0.39;}
+    if(shape===5&&!_isPrime[i+1]){tr[i]=0.23;tg[i]=0.2;tb[i]=0.16;}
+  }
+  _initIdx=end;
+}
+
 // ═══ RENDER ═══
 function render(){
   w=innerWidth;h=innerHeight;frame++;
@@ -1660,6 +1680,7 @@ function render(){
   // No opening zoom — start normal
 
   update();
+  runShapeInit();
 
   // the lock rocks the portals/title (physics) then settles
   if(homeFrame){
