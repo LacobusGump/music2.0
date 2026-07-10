@@ -236,6 +236,26 @@ var SECTION=[
 ];
 var LOCK_DROP=121.2, LOCK_HIT=123.414, LOCK_END=148;
 var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, mosh=0, lockAnticip=0, detonated=false, pull=0;
+// 0..1 envelope: ramps up over fadeIn after t0, holds at 1, ramps down over fadeOut before t1. One shared helper — every lyric-timed cue below reuses it instead of hand-rolling its own ramp math.
+function pulseWindow(ct,t0,t1,fadeIn,fadeOut){
+  if(ct<t0||ct>=t1) return 0;
+  if(ct<t0+fadeIn) return (ct-t0)/fadeIn;
+  if(ct>t1-fadeOut) return Math.max(0,(t1-ct)/fadeOut);
+  return 1;
+}
+// You There? — the uncanny doubt made literal, not just cymatics on shuffle.
+// Real Whisper word-alignment (tools/whisper_align.py against the actual
+// vocal stem) gave real per-line timestamps; cross-checked against the
+// track's own measured RMS envelope (v5/audio-envelopes.json) rather than
+// guessed. Two of the three windows below sit on real detected landmarks —
+// the biggest single-frame RMS drop in the whole track is at t=116s, one
+// second after the real "you" cue at 114.9s (a genuine measured hush, not
+// an assumed one), and the second-biggest drop is at t=154s, one second
+// before the real "keep" cue at 154.9 (the last word lands right after a
+// real measured silence). The "the gap is awake" cue (~139.5s) is Whisper's
+// interpolated guess, not a confirmed word match — treated here as soft,
+// nothing sharp is keyed to it.
+var ytCold=0, ytDouble=0, ytHeld=0, ytAfterglow=0;
 var homeFrame=document.querySelector('.frame'),fx=0,fy=0,fvx=0,fvy=0,frot=0,frv=0;
 var bendAmt=0,kickDone=[-1,-1,-1],flashMorph=false;
 var KICKS=[9,20,24]; // wide hit + big kicks that shake the page
@@ -284,6 +304,7 @@ precision mediump float;
 varying vec3 vCol;
 varying float vAlpha;
 uniform float uBright;
+uniform vec3 uTint;
 void main(){
   vec2 c=gl_PointCoord-0.5;
   float d=length(c);
@@ -303,7 +324,7 @@ void main(){
   // Alpha baked directly into color (premultiplied) — the MAX blend equation this
   // draw uses ignores the alpha channel entirely, so depth-fade/rim-softness have
   // to live in RGB or they'd vanish (every point would draw at full brightness).
-  gl_FragColor=vec4(vCol*(vAlpha*uBright*a),1.0);
+  gl_FragColor=vec4(vCol*(vAlpha*uBright*a)*uTint,1.0);
 }`;
 
 function compile(type,src){
@@ -322,6 +343,7 @@ var aSize=gl.getAttribLocation(prog,'aSize');
 var uMVP=gl.getUniformLocation(prog,'uMVP');
 var uScale=gl.getUniformLocation(prog,'uScale');
 var uBright=gl.getUniformLocation(prog,'uBright');
+var uTint=gl.getUniformLocation(prog,'uTint');
 
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // additive
@@ -1393,6 +1415,8 @@ function simStep(){
   var damp=burstT>0?0.97:morphT<1?0.92:0.95;
   if(nuts>0.05)damp=0.95;
   if(mosh>0.1)damp=0.965; // looser damping = particles drift free in the pit
+  if(ytHeld>0.01)damp=0.997-0.027*(1-ytHeld); // You There? — the held breath after "you" (see ytHeld above)
+  if(ytAfterglow>0)damp=Math.max(damp,0.95+0.045*ytAfterglow); // and the drift that never fully resolves at the end
   // real R (rhythmic coherence) tightens or loosens how cleanly particles snap to
   // target — a highly-synchronized song holds its shape tighter, a low-coherence
   // one drifts and jitters more, even outside the shapes built specifically for it
@@ -1409,8 +1433,22 @@ function simStep(){
   // moments (the unsure intro, the fade at the very end) get extra scatter;
   // it drains away as the track's own measured energy rises past the real
   // jump at ~19s, standing in for the lyric's resolution into "keep going."
+  ytCold=0;ytDouble=0;ytHeld=0;ytAfterglow=0;
   if(isAlbumMode()&&songOn&&window._curTrackFile==='you_there.mp3'){
     jit+=Math.max(0,0.35-audioIntensity)*0.04;
+    // "the room got cold" (real cue 74.1s) through "i didn't move" (~79.5s) — color cools, see uTint in render()
+    ytCold=pulseWindow(ct,74.1,84.9,1.5,2.5);
+    // "don't know which of us said it first / meant it" (real cues 65.84-70.58s) — the shape briefly can't
+    // tell its own particles apart either; spikes the existing self-coupling (partner-blend) mechanic
+    ytDouble=pulseWindow(ct,65.84,74.1,1,1.5);
+    // right after the real "you" cue (114.9s) sits the single biggest RMS drop in the whole track (t=116,
+    // real measured, not assumed) — the shape goes nearly still through it, a held breath, then releases
+    // into "keep going" (122.58s)
+    ytHeld=pulseWindow(ct,115.2,120.5,0.4,2.5);
+    // after the real "keep" cue (154.9s, itself right after the second-biggest real RMS drop at t=154) the
+    // track is basically done (dur=164.56) — instead of resolving clean like every other shape's ending,
+    // this one keeps drifting, dimmer and slower, unresolved on purpose: "the gap is awake" means it doesn't close
+    ytAfterglow=ct>=154.9?Math.min(1,(ct-154.9)/6):0;
   }
   // Real transient detection — a rise in the track's own measured loudness,
   // frame to frame, not a smoothed constant. Fast attack, fast decay, so a
@@ -1429,6 +1467,7 @@ function simStep(){
   // floor keeps it always genuinely visible instead of vanishing on
   // low-coupling tracks, which was the actual "yawn."
   var selfCouple=isAlbumMode()?Math.min(0.4,0.10+Math.max(0,audioK)*0.5+audioIntensity*0.12):0;
+  if(ytDouble>0)selfCouple=Math.min(0.7,selfCouple+ytDouble*0.4); // You There? — "don't know which of us..." (see ytDouble above)
   var partnerStep=Math.floor(N*0.382)||1;
   var driftOffset=Math.floor(t*11)%N;
   // Pass 1: every particle's target, computed exactly once — same total
@@ -1774,6 +1813,11 @@ function render(){
     // That overlap-built brightness gradient is the "shiny/watery" look
     // that's been missing — it's a property of accumulation, not a constant.
     gl.uniform1f(uBright,MOB?0.34:0.30);
+    // Single per-frame scalar tint (not a per-particle loop — see the shape-change
+    // perf fix above for why that distinction matters). Neutral (1,1,1) unless
+    // You There?'s cold/afterglow windows are active (see ytCold/ytAfterglow).
+    var tintCool=1-ytCold*0.55, tintDim=1-ytAfterglow*0.4;
+    gl.uniform3f(uTint,(1-ytCold*0.15)*tintDim,tintCool*tintDim,(1+ytCold*0.1)*tintDim);
 
     gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
     gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
