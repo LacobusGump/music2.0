@@ -96,4 +96,5 @@ import FineStructure.GravityKilledClaims
 -- Three-term decomposition conjecture for 2O spectral determinant (Cycle 9 — resolution + orbifold + crossterm)
 import FineStructure.ThreeTermConjecture
 
--- (End of stack — 30 modules. All 137 pages + private corpus claims importable and checkable.)
+-- (End of stack — 29 modules (counted 2026-07-10, corrected from a stale "30" here and on two
+-- live pages). All 137 pages + private corpus claims importable and checkable.)
