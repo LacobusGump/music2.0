@@ -15,6 +15,7 @@
 <link rel="icon" href="/favicon.png">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#c9a44a">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="GUMP">
 <link rel="apple-touch-icon" href="/img/icon-192.png">
@@ -1255,7 +1256,6 @@ function update(){
   var nowMs=performance.now(),dt=(nowMs-_lastMs)/1000;_lastMs=nowMs;
   if(dt>0.1)dt=0.1;
   _acc+=dt;
-  var steps=0;
   // Capped at 3, not 5: each simStep() recomputes shapeTarget() for every
   // particle (100k desktop), so 5 catch-up steps in one rAF frame means up to
   // 500,000 shapeTarget calls in that single frame — a real spike, and
@@ -1265,7 +1265,23 @@ function update(){
   // burst cost; a device that's sustained-slow will drift slightly behind
   // real time instead (already bounded below by the _acc>0.1 reset) rather
   // than spiking every frame trying to fully catch up.
-  while(_acc>=0.016&&steps<3){simStep();_acc-=0.016;steps++;}
+  var stepsToRun=Math.min(3,Math.floor(_acc/0.016));
+  // Real fix for sustained lag under load (not the one-off spike above — a
+  // device that's consistently slow, e.g. mid-song with nuts/mosh jitter
+  // active, hits stepsToRun===3 on EVERY frame, forever, not just once. That
+  // means shapeTarget + self-coupling + the jitter pass — the three most
+  // expensive O(N) blocks — were running 3x per rendered frame, permanently,
+  // in exactly the scenario reported as "still laggy when the music's on."
+  // shapeTarget's own target barely moves within 3 steps (0.048s of sim
+  // time) for any shape's actual animation frequencies, and jitter/self-
+  // couple are decorative effects layered on top, not physics that needs
+  // strict per-substep continuity. Only the LAST catch-up step in a frame
+  // pays for those three blocks now; earlier steps still integrate position
+  // (particles keep moving) against the most recently computed target. Cuts
+  // the sustained-overload cost by up to 3x with no visible difference —
+  // the frames this triggers on were already too slow to show the
+  // difference between a fresh target and one that's 1-2 steps stale.
+  for(var _s=0;_s<stepsToRun;_s++){ simStep(_s===stepsToRun-1); _acc-=0.016; }
   // If a device genuinely can't do 5 sim steps in a frame, the backlog
   // used to just keep growing forever (nothing ever drained it below the
   // 5-step cap) — meaning the visual would permanently drift further and
@@ -1275,12 +1291,12 @@ function update(){
   // degradation (time skips forward once, doesn't accumulate a leak).
   if(_acc>0.1)_acc=0;
 }
-function simStep(){
+function simStep(isLastStep){
   t+=0.016;
   shapeTime+=0.016;
   if(burstT>0)burstT-=0.016;
   if(shape===17) stepMystify(); // persistent vertex physics, once per frame not per particle
-  if(shape===20) stepFlame(); // real chaos-game iteration, once per frame, all N particles
+  if(shape===20 && isLastStep) stepFlame(); // real chaos-game iteration over all N particles — same catch-up cost issue as shapeTarget, same fix
   if(shape===21) stepPipes(); // 7 heads crawling forward, once per frame not per particle
 
   // ── beat grid + lock timeline (driven by playback time, beat-accurate) ──
@@ -1455,7 +1471,7 @@ function simStep(){
   // quiet verse actually goes quiet and a hit actually hits.
   var _aiRise=Math.max(0,audioIntensity-_prevAI); _prevAI=audioIntensity;
   transientPulse=Math.max(transientPulse*0.80, Math.min(1,_aiRise*22));
-  var jitOn=jit>0||transientPulse>0.02;
+  var jitOn=isLastStep&&(jit>0||transientPulse>0.02); // decorative ripple pass — only pay for it on the frame's final catch-up step, see update()
   // 1+1=3 — the shape coupled against a shifted copy of itself. Not a
   // metaphor: each particle's natural target gets blended toward a DIFFERENT
   // point on the same shape (its "coupling partner"), so the visible geometry
@@ -1471,7 +1487,14 @@ function simStep(){
   var partnerStep=Math.floor(N*0.382)||1;
   var driftOffset=Math.floor(t*11)%N;
   // Pass 1: every particle's target, computed exactly once — same total
-  // shapeTarget() call count as before self-coupling ever existed.
+  // shapeTarget() call count as before self-coupling ever existed. Only on
+  // the frame's final catch-up step (see update()) — the target buffer from
+  // the last recompute is reused on non-final steps, which is imperceptible
+  // (the target itself barely moves across 1-2 extra sub-steps) and is the
+  // single biggest cost cut during sustained overload, since this is the
+  // most expensive per-particle block (a large shape switch with multiple
+  // trig calls per particle).
+  if(isLastStep){
   for(var i=0;i<N;i++){ shapeTarget(i,shape); _tgtX[i]=_stX; _tgtY[i]=_stY; _tgtZ[i]=_stZ; }
   // Pass 2: self-coupling, reading the buffer instead of ever recomputing a
   // partner's target. Pure typed-array arithmetic, no function calls, no
@@ -1485,6 +1508,7 @@ function simStep(){
       _tgtZ[i]+=(_tgtZ[j]-_tgtZ[i])*selfCouple;
     }
   }
+  } // end isLastStep (Pass 1 + Pass 2) — integration below always runs, against whichever target is current
   for(var i=0;i<N;i++){
     var tx=_tgtX[i],ty=_tgtY[i],tz=_tgtZ[i];
     vx[i]+=(tx-px[i])*kk;vy[i]+=(ty-py[i])*kk;vz[i]+=(tz-pz[i])*kk;
