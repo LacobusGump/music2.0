@@ -42,7 +42,31 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0a0a0a;}
 /* ── Reveal / assemble-on-scroll, shared across all panels ── */
 .reveal{opacity:0;transform:translateY(24px);transition:opacity .55s cubic-bezier(.22,.61,.36,1),transform .55s cubic-bezier(.22,.61,.36,1);transition-delay:var(--d,0ms);}
 .reveal.in{opacity:1;transform:translateY(0);}
-@media(prefers-reduced-motion:reduce){.reveal{transition:none !important;opacity:1;transform:none;}}
+/* Headlines get a heavier "resolving into focus" treatment on top of the
+   fade — text arrives slightly blurred, oversized and loose-spaced, and
+   sharpens into place. Pure CSS (filter/transform/opacity), GPU-composited,
+   no per-frame JS cost — the "emergence" idea applied to typography instead
+   of a canvas, at effectively zero performance cost. */
+/* covers both markup shapes actually in use: .reveal directly on the h1
+   (every panel currently does this), and .reveal on a wrapper containing
+   an h1 (kept for safety if that pattern gets used later). h1.reveal has
+   higher specificity than the base .reveal rule above, so its transform
+   must include the same translateY(24px) or it silently replaces it
+   instead of adding to it — combined into one transform value here. */
+h1.reveal,.reveal h1{filter:blur(9px);transform:translateY(24px) scale(1.045);letter-spacing:0.03em;transition:filter .75s cubic-bezier(.22,.61,.36,1),transform .75s cubic-bezier(.22,.61,.36,1),letter-spacing .75s cubic-bezier(.22,.61,.36,1);transition-delay:var(--d,0ms);}
+h1.reveal.in,.reveal.in h1{filter:blur(0);transform:translateY(0) scale(1);letter-spacing:normal;}
+@media(prefers-reduced-motion:reduce){.reveal{transition:none !important;opacity:1;transform:none;}h1.reveal,.reveal h1{transition:none !important;filter:none;transform:none;letter-spacing:normal;}}
+
+/* ── Panel switch: a light depth cue so moving between sites reads as
+   flying past one and into the next, not just sliding sideways ── */
+.deck-panel{transition:filter .5s ease,opacity .5s ease;filter:blur(0);opacity:1;}
+#track.turning .deck-panel{filter:blur(5px);opacity:0.55;}
+@media(prefers-reduced-motion:reduce){.deck-panel{transition:none !important;}#track.turning .deck-panel{filter:none;opacity:1;}}
+
+/* ── Intro fly-through: one-time on load, skippable, sessionStorage-gated ── */
+#intro-fly{position:fixed;inset:0;z-index:500;background:#0a0a0a;cursor:pointer;}
+#intro-fly.fading{opacity:0;transition:opacity .5s ease;pointer-events:none;}
+@media(prefers-reduced-motion:reduce){#intro-fly{display:none !important;}}
 
 /* ── Glass utility — shared frosted-material recipe, used across panels ── */
 .glass{
@@ -681,6 +705,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0a0a0a;}
 </style>
 </head>
 <body>
+<canvas id="intro-fly" aria-hidden="true"></canvas>
 <div id="chrome">
   <button class="arrow" id="prevBtn" aria-label="previous">&#8592;</button>
   <button class="tab active" data-i="0">New Hong Kong</button>
@@ -1858,6 +1883,181 @@ function drawMower(ctx, w, h, t){
 initVisualizer('pulse-lawn', drawMower);
 })();
 
+// === Intro fly-through: starfield warp resolving into a wordmark, once per session, always skippable ===
+(function(){
+  var canvas = document.getElementById('intro-fly');
+  if(!canvas) return;
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var seen = false;
+  try { seen = sessionStorage.getItem('gump_demo_intro_seen') === '1'; } catch(e){}
+  if(reduced || seen){ canvas.remove(); return; }
+
+  var ctx = canvas.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = 0, h = 0;
+  function resize(){
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize();
+
+  // Sample the wordmark into a point cloud once, at a fixed working
+  // resolution (decoupled from actual screen size — cheap regardless of
+  // device) then map into normalized -1..1 space for the assemble phase.
+  function sampleText(lines, sizes){
+    var W = 900, H = 260;
+    var off = document.createElement('canvas');
+    off.width = W; off.height = H;
+    var octx = off.getContext('2d');
+    octx.fillStyle = '#fff';
+    octx.textAlign = 'center'; octx.textBaseline = 'middle';
+    var totalH = sizes.reduce(function(a,s){return a+s*1.15;},0);
+    var y = H/2 - totalH/2;
+    lines.forEach(function(line,i){
+      var size = sizes[i];
+      y += size*1.15*0.5;
+      octx.font = (i===0?'700 ':'400 ') + size + "px Futura,'Century Gothic',system-ui,sans-serif";
+      octx.fillText(line, W/2, y);
+      y += size*1.15*0.5;
+    });
+    var data = octx.getImageData(0,0,W,H).data;
+    var pts = [];
+    var step = 3;
+    for(var yy=0; yy<H; yy+=step){
+      for(var xx=0; xx<W; xx+=step){
+        if(data[(yy*W+xx)*4+3] > 128) pts.push([(xx/W-0.5)*2, (yy/H-0.5)*2*(H/W)]);
+      }
+    }
+    return pts;
+  }
+  var targets = sampleText(['BEGUMP','sites, built different'], [96,26]);
+
+  // Particle pool: most fly through and are never assigned a target (the
+  // "noise"); a subset get a target point and become the wordmark (the
+  // "signal that emerges"). Depth via simple perspective divide (x/z), no
+  // WebGL needed — same visual idea as the homepage field, at a fraction
+  // of the particle count and for ~2.5s once, not continuously.
+  var N = 900;
+  var particles = [];
+  function resetFar(p){
+    p.x = (Math.random()-0.5)*2.2; p.y = (Math.random()-0.5)*2.2; p.z = 1.4 + Math.random()*0.8;
+  }
+  for(var i=0;i<N;i++){
+    var p = {x:0,y:0,z:0,hasTarget:false,tx:0,ty:0,a:1};
+    resetFar(p);
+    particles.push(p);
+  }
+  // Assign targets to a shuffled subset (shuffled so the letters don't
+  // reveal front-to-back in a mechanical scan order)
+  var shuffled = targets.slice();
+  for(var s=shuffled.length-1;s>0;s--){ var j=(Math.random()*(s+1))|0; var tmp=shuffled[s]; shuffled[s]=shuffled[j]; shuffled[j]=tmp; }
+  for(var i=0;i<Math.min(shuffled.length, particles.length); i++){
+    particles[i].hasTarget = true;
+    particles[i].tx = shuffled[i][0]; particles[i].ty = shuffled[i][1];
+  }
+
+  var T1=1050, T2=1850, T3=2400; // flythrough / assemble / hold-then-fade
+  var t0 = performance.now();
+  var lastT = t0;
+  var raf = null, finished = false;
+
+  function ease(x){ return 1-Math.pow(1-x,3); } // cubic ease-out
+
+  function finish(){
+    if(finished) return; finished = true;
+    if(raf) cancelAnimationFrame(raf);
+    canvas.classList.add('fading');
+    try { sessionStorage.setItem('gump_demo_intro_seen','1'); } catch(e){}
+    setTimeout(function(){ canvas.remove(); }, 520);
+  }
+
+  function frame(now){
+    var el = now - t0;
+    // Real per-frame delta, not an assumed 60fps constant — everything
+    // below moves in real time regardless of device frame rate (the exact
+    // class of bug fixed in the homepage field engine yesterday: a fixed
+    // 1/60 per-frame decrement runs slower in wall-clock time on a 30fps
+    // device, which for a one-shot ~2.5s intro means it can visibly fail
+    // to finish fading before the phase ends).
+    var dt = Math.min(0.05, (now-lastT)/1000); lastT = now;
+    ctx.clearRect(0,0,w,h);
+    // Sized so the wordmark (aspect ratio locked to the 900x260 sample
+    // canvas) fits within the viewport on its own terms — a plain
+    // min(w,h) focal overflows the width on narrow mobile portrait
+    // screens, exactly the device most people will actually see this
+    // pitch demo on. 0.425/0.865 are the fit-margins for that 900x260
+    // aspect ratio specifically; both phases share this one focal length
+    // so there's no jump in depth-scale when the assemble phase begins.
+    var focal = Math.min(w*0.425, h*0.865);
+    if(el < T1){
+      // pure flythrough: everything streams toward camera, resets when past it
+      var speed = 0.7 + (el/T1)*1.1; // ramping up
+      for(var i=0;i<particles.length;i++){
+        var p = particles[i];
+        p.z -= speed*dt;
+        if(p.z < 0.05) resetFar(p);
+        var sx = w/2 + (p.x/p.z)*focal, sy = h/2 + (p.y/p.z)*focal;
+        var size = Math.max(0.4, (1/p.z)*1.6);
+        var alpha = Math.min(1, (1.4-p.z)*0.9);
+        if(sx>-20&&sx<w+20&&sy>-20&&sy<h+20){
+          ctx.fillStyle = 'rgba(232,196,118,'+(alpha*0.85).toFixed(3)+')';
+          ctx.fillRect(sx-size/2, sy-size/2, size, size);
+        }
+      }
+    } else if(el < T2){
+      // assemble: targeted particles ease toward the wordmark at a fixed
+      // depth; the rest (the "noise") fade out rather than keep flying —
+      // the text is what's left when the noise clears, not a separate layer.
+      // Both progress values are computed directly from elapsed time (el),
+      // not accumulated per-frame, so they reach exactly 1 at the same
+      // wall-clock moment on any device.
+      var prog = ease(Math.min(1,(el-T1)/(T2-T1)));
+      var fadeProg = Math.min(1, (el-T1)/((T2-T1)*0.55)); // non-target particles finish fading in the first 55% of this phase
+      for(var i=0;i<particles.length;i++){
+        var p = particles[i];
+        if(p.hasTarget){
+          var curZ = 1.4 - 0.9*prog; // settle toward z=0.5
+          var curX = p.x + (p.tx*curZ - p.x)*prog;
+          var curY = p.y + (p.ty*curZ - p.y)*prog;
+          var sx = w/2 + (curX/curZ)*focal, sy = h/2 + (curY/curZ)*focal;
+          var size = Math.max(1.1, (1/curZ)*1.4);
+          ctx.fillStyle = 'rgba(232,196,118,'+(0.55+0.4*prog).toFixed(3)+')';
+          ctx.fillRect(sx-size/2, sy-size/2, size, size);
+        } else {
+          var a = Math.max(0, 1-fadeProg);
+          if(a <= 0) continue;
+          p.z -= 0.9*dt;
+          if(p.z < 0.05) continue;
+          var sx2 = w/2 + (p.x/p.z)*focal, sy2 = h/2 + (p.y/p.z)*focal;
+          var size2 = Math.max(0.4, (1/p.z)*1.6);
+          ctx.fillStyle = 'rgba(232,196,118,'+(a*0.7).toFixed(3)+')';
+          ctx.fillRect(sx2-size2/2, sy2-size2/2, size2, size2);
+        }
+      }
+    } else if(el < T3){
+      // hold: settled wordmark, a soft shared shimmer so it reads as alive, not frozen
+      var shimmer = 0.85 + 0.15*Math.sin(el*0.006);
+      for(var i=0;i<particles.length;i++){
+        var p = particles[i];
+        if(!p.hasTarget) continue;
+        var sx = w/2 + (p.tx*0.5/0.5)*focal, sy = h/2 + (p.ty*0.5/0.5)*focal;
+        ctx.fillStyle = 'rgba(232,196,118,'+(0.95*shimmer).toFixed(3)+')';
+        ctx.fillRect(sx-1, sy-1, 2, 2);
+      }
+    } else {
+      finish(); return;
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+
+  ['click','keydown','touchstart','wheel'].forEach(function(ev){
+    canvas.addEventListener(ev, finish, {passive:true});
+  });
+  window.addEventListener('resize', resize);
+})();
+
 // === Reveal / assemble-on-scroll ===
 (function(){
   var io = new IntersectionObserver(function(entries){
@@ -1876,8 +2076,14 @@ initVisualizer('pulse-lawn', drawMower);
   var tabs = Array.prototype.slice.call(document.querySelectorAll('#chrome .tab'));
   var N = tabs.length;
   var idx = 0;
+  var turnTimer = null;
   function go(i){
-    idx = Math.max(0, Math.min(N-1, i));
+    var next = Math.max(0, Math.min(N-1, i));
+    if(next === idx) return;
+    idx = next;
+    track.classList.add('turning'); // depth cue: outgoing/incoming panels blur+dim mid-flight, sharpen on arrival
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(function(){ track.classList.remove('turning'); }, 520);
     track.style.transform = 'translateX(-' + (idx*100) + 'vw)';
     tabs.forEach(function(t,j){ t.classList.toggle('active', j===idx); });
   }
