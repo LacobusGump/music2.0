@@ -90,39 +90,26 @@
       '<a class="gr-full" href="/radio/" title="open the full show">the show</a>' +
       '<div class="gr-prog"></div>';
     document.body.appendChild(bar);
-    // The bar is fixed and floats over normal-flow content — push the page down by its real
-    // rendered height so it never overlaps a heading. Skip pages that lock body overflow to
-    // hidden on purpose (the immersive full-viewport pages) — those already treat the bar as
-    // an intentional overlay, and adding padding there would clip their bottom instead of
-    // fixing anything. Every normal scrollable content page gets pushed clear.
-    //
-    // CLS FIX (partial — see commit message for the honest rest of this): the old version
-    // measured the bar's height AFTER it was already visible and applied padding-top a whole
-    // rAF frame later, guaranteeing at least one extra unaccounted-for frame on top of
-    // whatever delay already existed (confirmed live via Cloudflare Web Analytics: recurring
-    // CLS on html>body>div.page across every page carrying this bar). This version sets
-    // --radio-bar-h to a real, CSS-computed estimate (44px — padding 7+8px + the tallest
-    // child's line-box) the instant start() runs, before the bar itself is even built, so the
-    // correct value lands one full frame earlier than before, and the eventual true-up is a
-    // same-or-few-px correction instead of a 0-to-44px jump. What this does NOT fix: start()
-    // still runs at DOMContentLoaded, which on a real page is frequently AFTER first paint —
-    // so some shift can still happen before this code ever executes. Eliminating that requires
-    // an inline, render-blocking CSS default in every page's own <head>, ahead of any deferred
-    // script — a real but much larger change (touches all 140 pages' <head>), intentionally
-    // not done in this pass. research/math/'s own jumpnav already reads this same variable;
-    // unify on it instead of a second, uncoordinated measurement.
-    var cs0 = getComputedStyle(document.body);
-    var overflowLocked = cs0.overflowY === 'hidden' || cs0.overflow === 'hidden';
-    if (!overflowLocked){
-      document.documentElement.style.setProperty('--radio-bar-h', '44px');
-      var padCss = document.createElement('style');
-      padCss.textContent = 'body{padding-top:calc(' + (cs0.paddingTop || '0px') + ' + var(--radio-bar-h,0px));}';
-      document.head.insertBefore(padCss, document.head.firstChild); // before the bar's own CSS so specificity/order stays predictable
-    }
+    // The bar is fixed and floats over normal-flow content — the page must reserve real space
+    // for it or every heading underneath gets covered. That reservation now happens BEFORE this
+    // script ever runs: every page carrying this bar has a render-blocking snippet at the very
+    // top of <head> — `:root{--radio-bar-h:44px}body{padding-top:var(--radio-bar-h)!important}`
+    // — a CSS-computed estimate (padding 7+8px + the tallest child's line-box) that applies
+    // before first paint, no JS dependency for the critical initial value. The 3 pages that
+    // deliberately lock body overflow to hidden (immersive full-viewport pages) don't carry that
+    // snippet at all, so `overflowLocked` here is just a safety check, not the real gate anymore.
+    // This is what killed the actual CLS: the old code measured the bar's real height AFTER
+    // appending it and applied padding a full frame later, so the page had already painted once
+    // with zero reserved space (confirmed live via Cloudflare Web Analytics: recurring shift on
+    // html>body>div.page across every page carrying this bar). Now all this does is correct the
+    // estimate to the real measured value — a same-or-few-px delta, not a 0-to-44px jump.
+    // research/math/'s own jumpnav already reads this same variable; this is the one place that
+    // ever needs to set it.
+    var overflowLocked = getComputedStyle(document.body).overflowY === 'hidden';
     requestAnimationFrame(function(){
       var h = bar.offsetHeight;
       if (h <= 0 || overflowLocked) return;
-      document.documentElement.style.setProperty('--radio-bar-h', h + 'px'); // small correction if real height ever drifts from the estimate
+      document.documentElement.style.setProperty('--radio-bar-h', h + 'px');
     });
     var a = document.createElement('audio');
     a.preload = wantPlay ? 'auto' : 'metadata'; // metadata = fast cue; auto = buffer the carried stream so it resumes instantly
