@@ -2,12 +2,18 @@
 // rides the bottom. It shows the song of the page you're on; once you press play
 // it carries the stream from page to page (via sessionStorage). Only one thing
 // plays at a time — it yields to any inline song you start, and they yield to it.
+//
+// window.RADIO is guaranteed to exist by the time this runs: every page loads
+// playlist.js before radio-bar.js, both as <script defer>, and deferred scripts
+// execute in document order before DOMContentLoaded (verified across all 140
+// pages that carry this bar — see MEMORY). So no polling/retry loop is needed;
+// if RADIO is somehow still missing, retrying every 50ms wouldn't fix a broken
+// playlist.js anyway, so this bails once and says why, instead of pretending.
 (function(){
-  var tries = 0;
   function start(){
     var R = window.RADIO;
-    if (!R || !R.list || !R.list.length) { if (tries++ < 80) return setTimeout(start, 50); return; } // wait for playlist.js, then give up gracefully
-    if (!document.body) { return setTimeout(start, 30); }
+    if (!R || !R.list || !R.list.length) { console.warn('[radio-bar] window.RADIO missing — playlist.js did not load or set it. Bar not mounted.'); return; }
+    if (!document.body) { return setTimeout(start, 30); } // only real race left: script ran before body exists yet
     if (document.querySelector('.gump-radio')) return; // never twice
     var PLAY = R.list, KEY = 'gump_radio', CDN = R.cdn || '', triedFb = false;
     var pageIdx = R.indexFor(R.slug());
@@ -89,12 +95,34 @@
     // hidden on purpose (the immersive full-viewport pages) — those already treat the bar as
     // an intentional overlay, and adding padding there would clip their bottom instead of
     // fixing anything. Every normal scrollable content page gets pushed clear.
+    //
+    // CLS FIX (partial — see commit message for the honest rest of this): the old version
+    // measured the bar's height AFTER it was already visible and applied padding-top a whole
+    // rAF frame later, guaranteeing at least one extra unaccounted-for frame on top of
+    // whatever delay already existed (confirmed live via Cloudflare Web Analytics: recurring
+    // CLS on html>body>div.page across every page carrying this bar). This version sets
+    // --radio-bar-h to a real, CSS-computed estimate (44px — padding 7+8px + the tallest
+    // child's line-box) the instant start() runs, before the bar itself is even built, so the
+    // correct value lands one full frame earlier than before, and the eventual true-up is a
+    // same-or-few-px correction instead of a 0-to-44px jump. What this does NOT fix: start()
+    // still runs at DOMContentLoaded, which on a real page is frequently AFTER first paint —
+    // so some shift can still happen before this code ever executes. Eliminating that requires
+    // an inline, render-blocking CSS default in every page's own <head>, ahead of any deferred
+    // script — a real but much larger change (touches all 140 pages' <head>), intentionally
+    // not done in this pass. research/math/'s own jumpnav already reads this same variable;
+    // unify on it instead of a second, uncoordinated measurement.
+    var cs0 = getComputedStyle(document.body);
+    var overflowLocked = cs0.overflowY === 'hidden' || cs0.overflow === 'hidden';
+    if (!overflowLocked){
+      document.documentElement.style.setProperty('--radio-bar-h', '44px');
+      var padCss = document.createElement('style');
+      padCss.textContent = 'body{padding-top:calc(' + (cs0.paddingTop || '0px') + ' + var(--radio-bar-h,0px));}';
+      document.head.insertBefore(padCss, document.head.firstChild); // before the bar's own CSS so specificity/order stays predictable
+    }
     requestAnimationFrame(function(){
       var h = bar.offsetHeight;
-      if (h <= 0) return;
-      var cs = getComputedStyle(document.body);
-      if (cs.overflowY === 'hidden' || cs.overflow === 'hidden') return;
-      document.body.style.paddingTop = 'calc(' + (cs.paddingTop || '0px') + ' + ' + h + 'px)';
+      if (h <= 0 || overflowLocked) return;
+      document.documentElement.style.setProperty('--radio-bar-h', h + 'px'); // small correction if real height ever drifts from the estimate
     });
     var a = document.createElement('audio');
     a.preload = wantPlay ? 'auto' : 'metadata'; // metadata = fast cue; auto = buffer the carried stream so it resumes instantly
@@ -203,8 +231,12 @@
     // ── The Egg: a reading reward. Drop the literal text "(egg)" anywhere deep in a page.
     // Whoever hunts it down clicks it — this page's song unlocks in the radio, and the egg
     // becomes a door to the whole album. No one reads walls of text; but they'll chase an
-    // egg, and the chase IS the read. One trigger, one radio — nothing to fall out of sync. ──
-    (function wireEgg(){
+    // egg, and the chase IS the read. One trigger, one radio — nothing to fall out of sync.
+    // Walking every text node in the page is real work almost every page load pays for zero
+    // benefit (most pages have no egg) — deferred to idle time so it never competes with
+    // getting the bar and audio element actually usable first. ──
+    var scheduleIdle = window.requestIdleCallback || function(fn){ setTimeout(fn, 200); };
+    scheduleIdle(function wireEgg(){
       var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), hits = [], n;
       while ((n = walker.nextNode())){
         if (n.parentNode && n.parentNode.closest && n.parentNode.closest('a,script,style,button,.gump-radio,.gr-egg')) continue;
@@ -237,7 +269,7 @@
         window.gumpRadio.playPageSong();
         egg.innerHTML = '♪ ' + window.gumpRadio.pageTitle() + ' — <a href="/radio/">hear the whole album →</a>';
       }, false);
-    })();
+    });
 
     // carry the stream across the page change — resume now if allowed, otherwise on first touch.
     // guards a stale carried session too (an unlock that expired, or a track that was never
