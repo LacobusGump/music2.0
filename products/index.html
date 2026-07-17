@@ -246,10 +246,53 @@ document.querySelectorAll('canvas.orb').forEach(function(cv){
   addEventListener('resize', (function(o){return function(){ o.w=0; };})(o), {passive:true});
   orbItems.push(o);
 });
+// ═══ BUILD WORLD — its own renderer: components fly in and assemble, then it RUNS (signals pulse the circuit) ═══
+function buildStruct(o){
+  var cols=4, rows=4, m=o.R*1.02, w=o.w, h=o.h, x0=w/2-m, y0=h/2-m, span=2*m, nodes=[], k=0;
+  for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
+    var jx=Math.sin(k*12.9)*span/cols*0.16, jy=Math.cos(k*7.7)*span/rows*0.16;
+    nodes.push({x:x0+(c+0.5)/cols*span+jx, y:y0+(r+0.5)/rows*span+jy}); k++;
+  }
+  function id(c,r){return r*cols+c;}
+  var edges=[];
+  for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){ if(c<cols-1)edges.push([id(c,r),id(c+1,r)]); if(r<rows-1)edges.push([id(c,r),id(c,r+1)]); }
+  edges.push([id(0,0),id(3,1)]); edges.push([id(1,3),id(3,2)]); edges.push([id(0,3),id(2,0)]);
+  o.bnodes=nodes; o.bedges=edges;
+}
+function drawBuildOrb(o){
+  var cx=o.cx, col=o.col;
+  if(!o.bnodes || o._bw!==o.w){ buildStruct(o); o._bw=o.w; }
+  cx.clearRect(0,0,o.w,o.h); cx.globalCompositeOperation='lighter';
+  var N=o.bnodes.length, E=o.bedges.length, CYCLE=9.5, ASM=3.0;
+  var cp = reduce ? ASM+2 : (performance.now()/1000)%CYCLE;
+  var asm = cp<ASM, p = asm?cp/ASM:1, runT = asm?0:(cp-ASM);
+  for(var e=0;e<E;e++){
+    var a=o.bnodes[o.bedges[e][0]], b=o.bnodes[o.bedges[e][1]];
+    var th=0.2+(e/E)*0.72, grow=asm?Math.max(0,Math.min(1,(p-th)/0.16)):1;
+    if(grow<=0) continue;
+    cx.strokeStyle=rgba(col,0.30); cx.lineWidth=1;
+    cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(a.x+(b.x-a.x)*grow,a.y+(b.y-a.y)*grow); cx.stroke();
+    if(!asm){
+      var ph=(runT*0.62+e*0.37)%1, px=a.x+(b.x-a.x)*ph, py=a.y+(b.y-a.y)*ph;
+      var g=cx.createRadialGradient(px,py,0,px,py,5); g.addColorStop(0,rgba(C.amber,0.95)); g.addColorStop(1,rgba(C.amber,0));
+      cx.fillStyle=g; cx.beginPath(); cx.arc(px,py,5,0,6.3); cx.fill();
+    }
+  }
+  for(var i=0;i<N;i++){
+    var nd=o.bnodes[i], appear=asm?Math.max(0,Math.min(1,(p-(i/N)*0.68)/0.12)):1;
+    if(appear<=0) continue;
+    var lit=asm?0:Math.pow(0.5+0.5*Math.sin(runT*3.1+i*1.3),3), s=2.3*appear;
+    cx.fillStyle=rgba(lit>0.55?C.gold:col, 0.5+0.45*(asm?appear:0.3+0.7*lit));
+    cx.fillRect(nd.x-s/2,nd.y-s/2,s,s);
+    if(!asm && lit>0.55){ var g=cx.createRadialGradient(nd.x,nd.y,0,nd.x,nd.y,6.5); g.addColorStop(0,rgba(C.gold,0.75*lit)); g.addColorStop(1,rgba(C.gold,0)); cx.fillStyle=g; cx.beginPath(); cx.arc(nd.x,nd.y,6.5,0,6.3); cx.fill(); }
+  }
+  cx.globalCompositeOperation='source-over';
+}
 function orbFrame(){
   for(var oi=0; oi<orbItems.length; oi++){
     var o=orbItems[oi], spec=o.spec, cx=o.cx, col=o.col;
     if(!o.w) o.resize();
+    if(o.cv.dataset.orb==='build'){ drawBuildOrb(o); continue; }
     o.t += 0.012*spec.speed*10;
     if(!reduce && SYNC.epoch!==o.seenSyncEpoch && SYNC.shape){
       // every so often, every world reforms into the same shape at once — the entrainment moment
