@@ -141,7 +141,7 @@ var ALB_SHAPES=[
   22,  // Cheese Receipt — tunnel (real R=0.58 K=0.39)
   2,   // LOCKED — Nobody Asked the Dog — torus, the steady unbroken hum of just staying
   1,   // Twelve Bullet Points — helix (real R=0.60 K=0.33)
-  21,  // Gospel for AI — pipes (real R=0.41 K=0.03)
+  21,  // LOCKED — Gospel for AI — pipes→organ, real drop-timed assembly built for this song specifically (real R=0.41 K=0.03)
   11,  // First Lock — tesseract (real R=0.54 K=-0.07)
   9,   // Butler's Tray — tree (real R=0.52 K=0.15)
   19,  // LOCKED — Tuesday — hyperspace, things move forward, literally
@@ -529,6 +529,7 @@ var audioIntensity=0.5, audioBrightness=0.7; // live-sampled each frame from whi
 // from inside shapeTarget (called per particle), so computed ONCE per frame
 // here rather than re-deriving song time per particle.
 var latticeSnap=1, latticeDoor=0, latticeDark=0;
+var organAmt=0, pipeFreeze=0, organScale=1; // Gospel for Ai — pipes→organ choreography
 // Proper Pleasantry — real bridge-gap progress, gated to this exact file only.
 var proPlGap=0;
 // Installation Hum — real mirror-pulse + cage-break progress, gated to this file only.
@@ -648,8 +649,13 @@ for(var _pi=0;_pi<PIPE_N;_pi++){
   pipeCharacter.push(0.7+((_pi*53)%100)/100*0.6);
   for(var _fillJ=0;_fillJ<PIPE_HIST;_fillJ++){ pipeX[_pi][_fillJ]=pipeCurX[_pi]; pipeY[_pi][_fillJ]=pipeCurY[_pi]; pipeZ[_pi][_fillJ]=pipeCurZ[_pi]; pipeAxis[_pi][_fillJ]=a0>>1; }
 }
+// Organ rank geometry — pipe p's column slot and height in final (×1.4) space.
+// Graded rank like a real facade: tallest at the left, stepping down.
+function organSlotX(p){return (p-(PIPE_N-1)/2)*0.62;}
+function organHeight(p){return (2.7-p*0.24)*organScale;}
+var ORGAN_BASE_Y=-1.35;
 function stepPipes(){
-  var speed=0.028+audioIntensity*0.05; // louder song, faster-crawling pipes
+  var speed=(0.028+audioIntensity*0.05)*(1-pipeFreeze); // the breath before the drop stops the crawl dead
   // Real evolution over the shape's OWN lifetime, not just per-pipe variety —
   // James: "it doesn't evolve, it gets a bit boring... i like that not all
   // are the same." Before this, turnEvery and the roam radius were fixed
@@ -719,10 +725,18 @@ function buildPipeTubeGeometry(){
   for(var p=0;p<PIPE_N;p++){
     var hue=(p/PIPE_N)*6.283+t*0.15;
     var baseR=0.5+0.5*Math.sin(hue), baseG=0.5+0.5*Math.sin(hue+2.094), baseB=0.5+0.5*Math.sin(hue+4.189);
+    // organ: this column "sounds" in its own phase — glow walks across the rank
+    var organGlow=organAmt>0?organAmt*Math.max(0,Math.sin(t*2.6+p*1.9))*audioIntensity:0;
+    var oSlotX=organSlotX(p), oH=organHeight(p);
     for(var i=0;i<PIPE_HIST;i++){
       var readIdx=(pipeWrite[p]+i)%PIPE_HIST;
       var ax=pipeAxis[p][readIdx];
       var cx=pipeX[p][readIdx]*1.4, cy=pipeY[p][readIdx]*1.4, cz=pipeZ[p][readIdx]*1.4;
+      if(organAmt>0){
+        var oy=ORGAN_BASE_Y+(i/(PIPE_HIST-1))*oH;
+        cx+=(oSlotX-cx)*organAmt; cy+=(oy-cy)*organAmt; cz+=(0-cz)*organAmt;
+        if(organAmt>0.5)ax=1; // columns stand vertical — cross-sections turn with them
+      }
       var rowBase=i*TUBE_SIDES;
       for(var s=0;s<TUBE_SIDES;s++){
         var ang=(s/TUBE_SIDES)*6.28318530718;
@@ -738,6 +752,13 @@ function buildPipeTubeGeometry(){
       var recency=i/(PIPE_HIST-1); // read order is oldest-first — matches shapeTarget case 21
       var br=0.3+0.7*recency;
       var cr0=baseR*br, cg0=baseG*br, cb0=baseB*br;
+      if(organAmt>0){
+        // brass — the whole rank goes gold as it assembles, and sounding columns shine
+        var gld=organAmt*0.85;
+        cr0+=(1.00*br-cr0)*gld; cg0+=(0.78*br-cg0)*gld; cb0+=(0.32*br-cb0)*gld;
+        var shine=1+organGlow*1.6;
+        cr0*=shine; cg0*=shine; cb0*=shine;
+      }
       var rowA=i*TUBE_SIDES, rowB=(i+1)*TUBE_SIDES;
       for(var s=0;s<TUBE_SIDES;s++){
         var s1=(s+1)%TUBE_SIDES;
@@ -1114,12 +1135,18 @@ function shapeTarget(i,s){
       var pP=i%PIPE_N, pSlot=Math.floor(i/PIPE_N)%PIPE_HIST;
       var pReadIdx=(pipeWrite[pP]+pSlot)%PIPE_HIST; // oldest-first read, so tube fills forward
       var pAx=pipeAxis[pP][pReadIdx];
+      var pbx=pipeX[pP][pReadIdx]*1.4, pby=pipeY[pP][pReadIdx]*1.4, pbz=pipeZ[pP][pReadIdx]*1.4;
+      if(organAmt>0){ // Gospel for Ai — the cloud assembles into the same organ as the tube mesh
+        var pOy=ORGAN_BASE_Y+(pSlot/(PIPE_HIST-1))*organHeight(pP);
+        pbx+=(organSlotX(pP)-pbx)*organAmt; pby+=(pOy-pby)*organAmt; pbz+=(0-pbz)*organAmt;
+        if(organAmt>0.5)pAx=1;
+      }
       var pAng=((i*29)%211)/211*6.283, pRad=0.05+audioIntensity*0.03;
       var pox=0,poy=0,poz=0;
       if(pAx===0){ poy=Math.cos(pAng)*pRad; poz=Math.sin(pAng)*pRad; }
       else if(pAx===1){ pox=Math.cos(pAng)*pRad; poz=Math.sin(pAng)*pRad; }
       else { pox=Math.cos(pAng)*pRad; poy=Math.sin(pAng)*pRad; }
-      tx=pipeX[pP][pReadIdx]*1.4+pox; ty=pipeY[pP][pReadIdx]*1.4+poy; tz=pipeZ[pP][pReadIdx]*1.4+poz;
+      tx=pbx+pox; ty=pby+poy; tz=pbz+poz;
       break;
     case 22: // Tunnel — rings of particles scrolling through Z, real perspective radius.
       var ringCount=48, ring=i%ringCount, seg=Math.floor(i/ringCount)%64;
@@ -1361,6 +1388,26 @@ function simStep(isLastStep){
     else if(ct>=196&&ct<208) gapSteady=1;
     else if(ct>=208&&ct<214) gapSteady=Math.max(0,1-(ct-208)/6);
   }
+  // Gospel for Ai — the pipes become the organ. Gospel → church → organ pipes:
+  // the wandering random walk IS the searching, and at the drop it assembles
+  // into the instrument. Real measured anchors (0.1s RMS): pre-drop breath at
+  // 115.8-117.5s (collapses to 0.23-0.27 — the pipes hold their breath, crawl
+  // freezes, trails gather inward); THE DROP at 117.6s (0.75) with a sustained
+  // plateau to ~156s — the organ assembles and its columns sound; release at
+  // ~157.6s back to wandering; a real stutter-gate at 237.3-238.8s (blinks to
+  // 0.02-0.09 — the crawl gasps); second service at 266-288.5s, an octave
+  // grander; one last flare at 300.7-303.7s (0.83); drift home from ~315s.
+  var organTgt=0, freezeTgt=0; organScale=1;
+  if(shape===21&&songOn&&isAlbumMode()&&window._curTrackFile==='gospel_for_ai.mp3'){
+    if(ct>=115.8&&ct<117.6)freezeTgt=1;
+    if(ct>=117.6&&ct<157.6)organTgt=1;
+    if(ct>=237.3&&ct<238.8)freezeTgt=1;
+    if(ct>=266&&ct<288.5)organTgt=1;
+    if(ct>=300.7&&ct<303.7)organTgt=1;
+    if(ct>=200)organScale=1.22;
+  }
+  organAmt+=(organTgt-organAmt)*(organTgt>organAmt?0.06:0.018); // assembles on the drop, releases like a breath out
+  pipeFreeze+=(freezeTgt-pipeFreeze)*0.3;
   // First Coat — real detected transition, gated to this file only. 0 the
   // rest of the song; ramps up across the real 127-133s silence window.
   var primerReveal=0;
