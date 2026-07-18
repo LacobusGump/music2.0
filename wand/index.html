@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="description" content="The Wand — wave your phone and beautiful music follows. No training, no wrong notes. For kids and everyone else.">
+<title>The Wand — beGump</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;background:#050510;-webkit-user-select:none;user-select:none;touch-action:none;}
+#sky{position:fixed;inset:0;display:block;}
+#boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;background:radial-gradient(ellipse at 50% 40%,#0c0a20 0%,#050510 70%);transition:opacity 1.2s ease;}
+#boot.gone{opacity:0;pointer-events:none;}
+.boot-in{text-align:center;padding:24px;max-width:340px;}
+#orb{width:88px;height:88px;border-radius:50%;margin:0 auto 28px;cursor:pointer;background:radial-gradient(circle at 36% 32%,#fff7e0,#ffd98a 35%,#c98a2e 70%,#7a4a14);box-shadow:0 0 42px rgba(255,214,140,0.55),0 0 120px rgba(255,190,90,0.25);animation:pulse 3.2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{transform:scale(0.95);box-shadow:0 0 32px rgba(255,214,140,0.45),0 0 90px rgba(255,190,90,0.18);}50%{transform:scale(1.05);box-shadow:0 0 52px rgba(255,214,140,0.7),0 0 150px rgba(255,190,90,0.32);}}
+h1{font-family:Futura,'Century Gothic',sans-serif;font-weight:300;font-size:1.5em;letter-spacing:0.32em;text-transform:uppercase;color:#ffe9bd;margin-bottom:14px;}
+.boot-sub{font-family:Georgia,serif;font-size:0.92em;line-height:1.9;color:rgba(255,233,189,0.55);margin-bottom:30px;}
+#begin{background:rgba(255,214,140,0.1);border:1px solid rgba(255,214,140,0.4);border-radius:999px;padding:14px 46px;color:#ffe9bd;font-family:Futura,'Century Gothic',sans-serif;font-size:0.8em;letter-spacing:0.28em;text-transform:uppercase;cursor:pointer;}
+#begin:active{background:rgba(255,214,140,0.25);}
+#hint{position:fixed;bottom:8vh;left:0;right:0;text-align:center;font-family:Georgia,serif;font-size:0.95em;color:rgba(255,233,189,0.65);opacity:0;transition:opacity 1.5s ease;pointer-events:none;z-index:5;text-shadow:0 0 12px rgba(0,0,0,0.8);}
+#back{position:fixed;top:12px;right:14px;z-index:6;font-family:Futura,'Century Gothic',sans-serif;font-size:0.58em;letter-spacing:0.18em;color:rgba(255,233,189,0.28);text-decoration:none;text-transform:uppercase;}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<a id="back" href="/products/">beGump</a>
+<div id="hint"></div>
+<div id="boot">
+  <div class="boot-in">
+    <div id="orb"></div>
+    <h1>The Wand</h1>
+    <div class="boot-sub">Wave your phone, and the music follows.<br>Nothing you do can sound wrong.</div>
+    <button id="begin">begin</button>
+  </div>
+</div>
+<script>
+(function(){
+'use strict';
+
+/* ══════════════════════════════════════════════════════════════════
+   THE WAND
+   The orchestra is already beautiful; the wand conducts it.
+   Key-locked harmony, phrases that resolve, groove that holds you.
+   Motion controls expression — energy, register, brightness, flourish.
+   ══════════════════════════════════════════════════════════════════ */
+
+var actx = null;
+var running = false;
+
+// ── MUSIC THEORY — the lattice with no wrong notes ─────────────────
+
+var BPM = 76;
+var SP16 = 60 / BPM / 4;              // seconds per 16th note
+var KEY_ROOT = 62;                    // D4 in MIDI; everything is D major
+var MAJOR = [0, 2, 4, 5, 7, 9, 11];
+var PENT  = [0, 2, 4, 7, 9];
+
+function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+
+// Triad (in semitones from key root) for a scale degree 0-6
+function chordSemis(deg){
+  var a = MAJOR[deg];
+  var b = MAJOR[(deg + 2) % 7] + (deg + 2 > 6 ? 12 : 0);
+  var c = MAJOR[(deg + 4) % 7] + (deg + 4 > 6 ? 12 : 0);
+  return [a, b, c];
+}
+
+// Progressions that always resolve. Numbers are scale degrees.
+var PROGRESSIONS = [
+  [0, 4, 5, 3],   // I  V  vi IV
+  [0, 2, 3, 4],   // I  iii IV V
+  [5, 3, 0, 4],   // vi IV  I  V
+  [0, 3, 5, 4],   // I  IV  vi V
+];
+var progression = PROGRESSIONS[0];
+var chordDeg = 0;                     // current chord's scale degree
+var chordTones = chordSemis(0);       // current chord semis
+
+// Pentatonic walk position → MIDI. The melody walks this ladder;
+// strong beats snap to the nearest chord tone. No wrong notes exist.
+function walkToMidi(pos){
+  pos = Math.max(0, Math.min(14, pos));
+  var oct = Math.floor(pos / 5);
+  return KEY_ROOT + PENT[pos % 5] + 12 * oct;
+}
+
+function snapToChord(midi){
+  var best = midi, dist = 99;
+  for(var o = -12; o <= 24; o += 12){
+    for(var i = 0; i < 3; i++){
+      var c = KEY_ROOT + chordTones[i] + o;
+      var d = Math.abs(c - midi);
+      if(d < dist){ dist = d; best = c; }
+    }
+  }
+  return best;
+}
+
+// ── AUDIO GRAPH — one warm room everything lives in ────────────────
+
+var master, comp, dryBus, sendBus, verb, verbGain, noiseBuf;
+
+function buildRoom(){
+  master = actx.createGain(); master.gain.value = 0.9;
+  comp = actx.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.ratio.value = 5;
+  comp.attack.value = 0.006; comp.release.value = 0.24;
+
+  dryBus = actx.createGain(); dryBus.gain.value = 1;
+  sendBus = actx.createGain(); sendBus.gain.value = 1;
+
+  verb = actx.createConvolver();
+  verb.buffer = makeImpulse(3.0, 2.6);
+  verbGain = actx.createGain(); verbGain.gain.value = 0.55;
+
+  dryBus.connect(comp);
+  sendBus.connect(verb); verb.connect(verbGain); verbGain.connect(comp);
+  comp.connect(master); master.connect(actx.destination);
+
+  noiseBuf = makeNoise(1.2);
+}
+
+function makeImpulse(seconds, decay){
+  var rate = actx.sampleRate;
+  var len = Math.floor(rate * seconds);
+  var buf = actx.createBuffer(2, len, rate);
+  for(var ch = 0; ch < 2; ch++){
+    var d = buf.getChannelData(ch);
+    for(var i = 0; i < len; i++){
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+
+function makeNoise(seconds){
+  var rate = actx.sampleRate;
+  var len = Math.floor(rate * seconds);
+  var buf = actx.createBuffer(1, len, rate);
+  var d = buf.getChannelData(0);
+  for(var i = 0; i < len; i++){ d[i] = Math.random() * 2 - 1; }
+  return buf;
+}
+
+function out(node, dry, send, pan){
+  var p = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  var dg = actx.createGain(); dg.gain.value = dry;
+  var sg = actx.createGain(); sg.gain.value = send;
+  if(p){ p.pan.value = pan || 0; node.connect(p); p.connect(dg); p.connect(sg); }
+  else { node.connect(dg); node.connect(sg); }
+  dg.connect(dryBus); sg.connect(sendBus);
+}
+
+// ── VOICES ─────────────────────────────────────────────────────────
+
+// Harp pluck — the sparkle fingers
+function pluck(t, midi, vel, pan){
+  var f = mtof(midi);
+  var o = actx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+  var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1;
+  lp.frequency.setValueAtTime(f * 5, t);
+  lp.frequency.exponentialRampToValueAtTime(f * 1.4, t + 0.4);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+  o.connect(lp); lp.connect(g); out(g, 0.8, 0.4, pan);
+  o.start(t); o.stop(t + 1.1);
+}
+
+// Music-box bell — the melody voice (2-op FM)
+function bell(t, midi, vel, pan){
+  var f = mtof(midi);
+  var car = actx.createOscillator(); car.type = 'sine'; car.frequency.value = f;
+  var mod = actx.createOscillator(); mod.type = 'sine'; mod.frequency.value = f * 3.01;
+  var mg = actx.createGain();
+  mg.gain.setValueAtTime(f * 2.4 * vel, t);
+  mg.gain.exponentialRampToValueAtTime(f * 0.01, t + 0.5);
+  mod.connect(mg); mg.connect(car.frequency);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.28 * vel, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
+  car.connect(g); out(g, 0.7, 0.5, pan);
+  car.start(t); mod.start(t);
+  car.stop(t + 2.0); mod.stop(t + 2.0);
+}
+
+// Deep soft bass
+function bassNote(t, midi, vel, dur){
+  var f = mtof(midi);
+  var o1 = actx.createOscillator(); o1.type = 'sine'; o1.frequency.value = f;
+  var o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f;
+  var g2 = actx.createGain(); g2.gain.value = 0.3;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.34 * vel, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o1.connect(g); o2.connect(g2); g2.connect(g); out(g, 1, 0.06, 0);
+  o1.start(t); o2.start(t); o1.stop(t + dur + 0.1); o2.stop(t + dur + 0.1);
+}
+
+// Pad — two detuned saws per note, held until the chord changes
+var padNodes = [];
+function padChord(t, brightness){
+  // release the old chord
+  for(var i = 0; i < padNodes.length; i++){
+    var n = padNodes[i];
+    n.g.gain.cancelScheduledValues(t);
+    n.g.gain.setValueAtTime(n.g.gain.value || 0.0001, t);
+    n.g.gain.exponentialRampToValueAtTime(0.0001, t + 2.0);
+    n.o1.stop(t + 2.2); n.o2.stop(t + 2.2);
+  }
+  padNodes = [];
+  var lvl = 0.05;
+  for(var k = 0; k < 3; k++){
+    var midi = KEY_ROOT + chordTones[k];
+    var f = mtof(midi);
+    var o1 = actx.createOscillator(); o1.type = 'sawtooth';
+    var o2 = actx.createOscillator(); o2.type = 'sawtooth';
+    o1.frequency.value = f; o2.frequency.value = f;
+    o1.detune.value = -6; o2.detune.value = 6;
+    var lp = actx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 300 + brightness * 1400; lp.Q.value = 0.5;
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(lvl, t + 1.4);
+    o1.connect(lp); o2.connect(lp); lp.connect(g);
+    out(g, 0.75, 0.45, (k - 1) * 0.3);
+    o1.start(t); o2.start(t);
+    padNodes.push({ o1: o1, o2: o2, g: g, lp: lp });
+  }
+}
+
+var lastBright = -1;
+function padBrightness(brightness){
+  if(Math.abs(brightness - lastBright) < 0.02){ return; }
+  lastBright = brightness;
+  var f = 300 + brightness * 1400;
+  for(var i = 0; i < padNodes.length; i++){
+    padNodes[i].lp.frequency.setTargetAtTime(f, actx.currentTime, 0.3);
+  }
+}
+
+// Drums — felt, not heard
+function kick(t, vel){
+  var o = actx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(110, t);
+  o.frequency.exponentialRampToValueAtTime(42, t + 0.09);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.5 * vel, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  o.connect(g); out(g, 1, 0.02, 0);
+  o.start(t); o.stop(t + 0.2);
+}
+
+function hat(t, vel){
+  var s = actx.createBufferSource(); s.buffer = noiseBuf;
+  var hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.08 * vel, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  s.connect(hp); hp.connect(g); out(g, 0.9, 0.1, 0.2);
+  s.start(t); s.stop(t + 0.08);
+}
+
+function shaker(t, vel){
+  var s = actx.createBufferSource(); s.buffer = noiseBuf;
+  var bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 4200; bp.Q.value = 1.4;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.06 * vel, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  s.connect(bp); bp.connect(g); out(g, 0.9, 0.1, -0.25);
+  s.start(t); s.stop(t + 0.12);
+}
+
+// The flourish — cast a spell: harp run + shimmer
+function flourish(t){
+  var start = 4 + Math.floor(Math.random() * 3);
+  for(var i = 0; i < 9; i++){
+    var midi = snapToChordish(walkToMidi(start + i));
+    pluck(t + i * 0.05, midi, 0.9 - i * 0.04, (i - 4) * 0.15);
+  }
+  bell(t + 9 * 0.05, snapToChord(walkToMidi(start + 9)), 0.9, 0);
+  var s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  var hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 8000;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.05, t + 0.3);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+  s.connect(hp); hp.connect(g); out(g, 0.3, 0.9, 0);
+  s.start(t); s.stop(t + 1.5);
+}
+
+// runs snap only lightly — passing tones are allowed inside a flourish
+function snapToChordish(midi){
+  return Math.random() < 0.5 ? snapToChord(midi) : midi;
+}
+
+// ── THE WAND — input → expression ──────────────────────────────────
+// Energy moves like water in a half-full bottle: momentum, overshoot,
+// damping. Never a hard snap to a value.
+
+var energy = 0, energyVel = 0, energyTarget = 0;
+var tiltX = 0, tiltY = 0;             // -1..1 smoothed (gamma, beta)
+var flickAt = -9;                     // last flourish time (actx clock)
+var motionSeen = false;
+
+function springStep(dt){
+  var k = 26, damp = 7.5;
+  var accel = (energyTarget - energy) * k - energyVel * damp;
+  energyVel += accel * dt;
+  energy += energyVel * dt;
+  if(energy < 0){ energy = 0; energyVel = 0; }
+  if(energy > 1){ energy = 1; energyVel *= -0.3; }
+}
+
+function onMotion(e){
+  var a = e.acceleration;
+  if(!a || (a.x === null && a.y === null)){ a = e.accelerationIncludingGravity; }
+  if(!a){ return; }
+  var mag = Math.sqrt((a.x||0)*(a.x||0) + (a.y||0)*(a.y||0) + (a.z||0)*(a.z||0));
+  if(e.acceleration && e.acceleration.x !== null){ motionSeen = true; }
+  else { mag = Math.abs(mag - 9.81); }
+  var target = Math.max(0, Math.min(1, (mag - 0.4) / 7));
+  if(target > energyTarget){ energyTarget = target; }
+  if(mag > 15 && actx && actx.currentTime - flickAt > 1.4){
+    flickAt = actx.currentTime;
+    flourish(actx.currentTime + 0.02);
+    burst();
+  }
+}
+
+function onOrient(e){
+  var g = Math.max(-60, Math.min(60, e.gamma || 0)) / 60;
+  var b = Math.max(-60, Math.min(60, (e.beta || 0) - 30)) / 60;
+  tiltX += (g - tiltX) * 0.12;
+  tiltY += (b - tiltY) * 0.12;
+}
+
+// Pointer (touch or mouse) — the wand for hands and desktops
+var ptr = { down: false, x: 0.5, y: 0.5, px: 0.5, py: 0.5, speed: 0, lastT: 0 };
+
+function ptrDown(x, y){
+  ptr.down = true; ptr.x = x; ptr.y = y; ptr.px = x; ptr.py = y;
+  ptr.lastT = performance.now();
+}
+function ptrMove(x, y){
+  if(!ptr.down){ return; }
+  var now = performance.now();
+  var dt = Math.max(8, now - ptr.lastT);
+  var dx = x - ptr.px, dy = y - ptr.py;
+  var sp = Math.sqrt(dx * dx + dy * dy) / (dt / 1000);
+  ptr.speed = sp;
+  var target = Math.max(0, Math.min(1, sp / 2.4));
+  if(target > energyTarget){ energyTarget = target; }
+  tiltX += ((x * 2 - 1) - tiltX) * 0.2;
+  tiltY += ((y * 2 - 1) - tiltY) * 0.2;
+  if(sp > 3.4 && actx && actx.currentTime - flickAt > 1.4){
+    flickAt = actx.currentTime;
+    flourish(actx.currentTime + 0.02);
+    burst();
+  }
+  ptr.px = x; ptr.py = y; ptr.lastT = now;
+}
+function ptrUp(){ ptr.down = false; ptr.speed = 0; }
+
+function wireInput(){
+  window.addEventListener('devicemotion', onMotion, { passive: true });
+  window.addEventListener('deviceorientation', onOrient, { passive: true });
+  document.addEventListener('touchstart', function(e){
+    var t = e.touches[0];
+    ptrDown(t.clientX / innerWidth, t.clientY / innerHeight);
+  }, { passive: true });
+  document.addEventListener('touchmove', function(e){
+    var t = e.touches[0];
+    ptrMove(t.clientX / innerWidth, t.clientY / innerHeight);
+  }, { passive: true });
+  document.addEventListener('touchend', ptrUp, { passive: true });
+  document.addEventListener('mousedown', function(e){
+    ptrDown(e.clientX / innerWidth, e.clientY / innerHeight);
+  });
+  document.addEventListener('mousemove', function(e){
+    ptrMove(e.clientX / innerWidth, e.clientY / innerHeight);
+  });
+  document.addEventListener('mouseup', ptrUp);
+}
+
+// iOS 13+: the dialog only appears if asked INSIDE the tap. Never defer.
+function askMotionPermission(){
+  var asks = [];
+  if(typeof DeviceMotionEvent !== 'undefined' &&
+     typeof DeviceMotionEvent.requestPermission === 'function'){
+    asks.push(DeviceMotionEvent.requestPermission().catch(function(){ return 'denied'; }));
+  }
+  if(typeof DeviceOrientationEvent !== 'undefined' &&
+     typeof DeviceOrientationEvent.requestPermission === 'function'){
+    asks.push(DeviceOrientationEvent.requestPermission().catch(function(){ return 'denied'; }));
+  }
+  return Promise.all(asks);
+}
+
+// ── CONDUCTOR — lookahead scheduler on the audio clock ─────────────
+
+var step = 0, nextTime = 0, barOfProg = 0, tier = 0;
+var phrase = [];                      // [{s: step-in-2-bars, walk: ladder pos}]
+var walkPos = 7, lastPhrase = null;
+
+function tierFromEnergy(){
+  // hysteresis so the band doesn't stutter at boundaries
+  var up = [0.14, 0.38, 0.66], down = [0.10, 0.32, 0.58];
+  if(tier < 3 && energy > up[tier]){ tier++; }
+  else if(tier > 0 && energy < down[tier - 1]){ tier--; }
+  return tier;
+}
+
+function makePhrase(){
+  // reuse + transform the last phrase half the time — repetition is music
+  if(lastPhrase && Math.random() < 0.5){
+    var shift = [(-2), (-1), 1, 2][Math.floor(Math.random() * 4)];
+    phrase = lastPhrase.map(function(n){ return { s: n.s, walk: n.walk + shift }; });
+  } else {
+    phrase = [];
+    var count = 3 + Math.round(energy * 5);
+    var used = {};
+    for(var i = 0; i < count; i++){
+      var s = 2 * Math.floor(Math.random() * 16);
+      if(used[s]){ continue; }
+      used[s] = true;
+      var dir = tiltX > 0.15 ? 1 : (tiltX < -0.15 ? -1 : (Math.random() < 0.5 ? -1 : 1));
+      walkPos += dir * (1 + Math.floor(Math.random() * 2));
+      walkPos = Math.max(2, Math.min(13, walkPos));
+      phrase.push({ s: s, walk: walkPos });
+    }
+    phrase.sort(function(a, b){ return a.s - b.s; });
+  }
+  lastPhrase = phrase;
+}
+
+function scheduleStep(s, t){
+  var inBar = s % 16;
+  var in2Bars = s % 32;
+
+  if(in2Bars === 0){ makePhrase(); }
+
+  if(inBar === 0){
+    barOfProg = Math.floor(s / 16) % 4;
+    if(barOfProg === 0 && Math.random() < 0.35){
+      progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    }
+    chordDeg = progression[barOfProg];
+    chordTones = chordSemis(chordDeg);
+    padChord(t, 0.3 + energy * 0.6);
+    noteGlow(t, 1.2);
+  }
+
+  var reg = tiltY < -0.2 ? 12 : 0;    // tip the wand up → everything lifts
+
+  // bass — root heartbeat
+  if(inBar === 0){ bassNote(t, KEY_ROOT - 24 + chordTones[0], 0.9, 1.6); }
+  if(inBar === 8 && tier >= 1){ bassNote(t, KEY_ROOT - 24 + chordTones[0], 0.6, 1.2); }
+  if(tier >= 3 && (inBar === 4 || inBar === 12)){
+    bassNote(t, KEY_ROOT - 12 + chordTones[0], 0.4, 0.6);
+  }
+
+  // drums
+  if(tier >= 1 && inBar === 0){ kick(t, 0.5 + energy * 0.4); }
+  if(tier >= 2 && inBar === 8){ kick(t, 0.45); }
+  if(tier >= 3 && inBar === 10){ kick(t, 0.3); }
+  if(tier >= 2 && (inBar === 4 || inBar === 12)){ hat(t, 0.8); }
+  if(tier >= 3 && inBar % 2 === 0){ shaker(t, inBar % 4 === 2 ? 0.9 : 0.5); }
+
+  // harp arpeggio — chord tones climbing, faster with energy
+  var arpEvery = tier >= 3 ? 2 : (tier === 2 ? 4 : 8);
+  if(tier >= 1 && inBar % arpEvery === 0){
+    var idx = Math.floor(inBar / arpEvery);
+    var semi = chordTones[idx % 3] + 12 * Math.floor(idx / 3 % 2);
+    pluck(t, KEY_ROOT + 12 + semi + reg, 0.4 + energy * 0.4, (idx % 3 - 1) * 0.35);
+    noteGlow(t, 0.4);
+  }
+
+  // melody — the phrase, snapped to the chord on strong beats
+  for(var i = 0; i < phrase.length; i++){
+    if(phrase[i].s === in2Bars){
+      var midi = walkToMidi(phrase[i].walk);
+      if(in2Bars % 8 === 0){ midi = snapToChord(midi); }
+      bell(t, midi + reg, 0.5 + energy * 0.4, tiltX * 0.4);
+      noteGlow(t, 0.8);
+    }
+  }
+
+  // stillness is not silence — twinkles keep the magic alive
+  if(tier === 0 && Math.random() < 0.06){
+    bell(t, snapToChord(walkToMidi(9 + Math.floor(Math.random() * 5))) + 12, 0.22, (Math.random() * 2 - 1) * 0.6);
+    noteGlow(t, 0.5);
+  }
+}
+
+var tickTimer = null;
+
+function tick(){
+  if(!running){ return; }
+  while(nextTime < actx.currentTime + 0.14){
+    scheduleStep(step, nextTime);
+    step++;
+    nextTime += SP16;
+  }
+}
+
+// ── VISUALS — the sky answers the sound ────────────────────────────
+
+var cv = document.getElementById('sky'), cx = cv.getContext('2d');
+var W = 0, H = 0, parts = [], glows = [], lastFrame = 0;
+
+function resize(){ W = cv.width = innerWidth; H = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+function chordHue(){ return (200 + chordTones[0] * 22) % 360; }
+
+function noteGlow(atTime, size){
+  glows.push({ at: atTime, size: size });
+}
+
+function spawn(x, y, sp, hue){
+  if(parts.length > 220){ return; }
+  var a = Math.random() * Math.PI * 2;
+  parts.push({
+    x: x, y: y,
+    vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 12,
+    life: 1, decay: 0.25 + Math.random() * 0.5,
+    r: 1 + Math.random() * 2.2, hue: hue + (Math.random() * 40 - 20)
+  });
+}
+
+function burst(){
+  var x = W * (0.5 + tiltX * 0.35), y = H * (0.5 + tiltY * 0.3);
+  for(var i = 0; i < 46; i++){ spawn(x, y, 60 + Math.random() * 140, 45); }
+}
+
+function draw(now){
+  requestAnimationFrame(draw);
+  var dt = Math.min(0.05, (now - lastFrame) / 1000 || 0.016);
+  lastFrame = now;
+
+  springStep(dt);
+  energyTarget *= Math.pow(0.28, dt);          // input fades → music settles
+  if(running){ tierFromEnergy(); padBrightness(0.3 + energy * 0.6); }
+
+  var hue = chordHue();
+  var g = cx.createRadialGradient(W/2, H*0.42, 0, W/2, H*0.42, Math.max(W, H) * 0.75);
+  g.addColorStop(0, 'hsl(' + hue + ',42%,' + (7 + energy * 9) + '%)');
+  g.addColorStop(1, 'hsl(' + ((hue + 40) % 360) + ',50%,3%)');
+  cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+
+  // wand light
+  var wx = W * (0.5 + tiltX * 0.35), wy = H * (0.5 + tiltY * 0.3);
+  var wr = 24 + energy * 60;
+  var wg = cx.createRadialGradient(wx, wy, 0, wx, wy, wr * 3);
+  wg.addColorStop(0, 'hsla(45,90%,80%,' + (0.5 + energy * 0.4) + ')');
+  wg.addColorStop(0.3, 'hsla(45,85%,65%,0.12)');
+  wg.addColorStop(1, 'hsla(45,80%,60%,0)');
+  cx.fillStyle = wg;
+  cx.beginPath(); cx.arc(wx, wy, wr * 3, 0, 7); cx.fill();
+
+  // scheduled note glows fire when the audio clock reaches them
+  if(actx){
+    for(var i = glows.length - 1; i >= 0; i--){
+      if(actx.currentTime >= glows[i].at){
+        for(var k = 0; k < 3 + glows[i].size * 5; k++){
+          spawn(wx + (Math.random()*2-1)*wr*2, wy + (Math.random()*2-1)*wr*2, 20 + energy * 60, hue);
+        }
+        glows.splice(i, 1);
+      } else if(glows[i].at - actx.currentTime > 4){ glows.splice(i, 1); }
+    }
+  }
+
+  cx.globalCompositeOperation = 'lighter';
+  for(var j = parts.length - 1; j >= 0; j--){
+    var p = parts[j];
+    p.life -= p.decay * dt;
+    if(p.life <= 0){ parts.splice(j, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 8 * dt; p.vx *= 0.995;
+    cx.fillStyle = 'hsla(' + p.hue + ',85%,72%,' + (p.life * 0.7) + ')';
+    cx.beginPath(); cx.arc(p.x, p.y, p.r * p.life, 0, 7); cx.fill();
+  }
+  cx.globalCompositeOperation = 'source-over';
+}
+requestAnimationFrame(draw);
+
+// ── BOOT ───────────────────────────────────────────────────────────
+
+function unlockAudio(){
+  if(!actx){ return; }
+  if(actx.state === 'suspended'){ actx.resume().catch(function(){}); }
+  try{
+    var b = actx.createBuffer(1, 1, actx.sampleRate);
+    var s = actx.createBufferSource();
+    s.buffer = b; s.connect(actx.destination); s.start(0);
+  }catch(e){}
+}
+
+function begin(){
+  if(running){ return; }
+  running = true;
+
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  unlockAudio();
+  buildRoom();
+  wireInput();
+  askMotionPermission();               // inside the tap — the only place it works
+
+  document.getElementById('boot').classList.add('gone');
+
+  var hint = document.getElementById('hint');
+  var touch = 'ontouchstart' in window;
+  hint.textContent = touch ? 'wave it · tilt it · flick it · hold it still'
+                           : 'drag the light · flick it · let it rest';
+  hint.style.opacity = '1';
+  setTimeout(function(){ hint.style.opacity = '0'; }, 6000);
+
+  chordDeg = progression[0];
+  chordTones = chordSemis(chordDeg);
+  step = 0;
+  nextTime = actx.currentTime + 0.1;
+  tickTimer = setInterval(tick, 30);
+}
+
+document.getElementById('begin').addEventListener('click', begin);
+document.getElementById('begin').addEventListener('touchend', function(e){
+  e.preventDefault(); begin();
+}, { passive: false });
+
+document.addEventListener('visibilitychange', function(){
+  if(!actx){ return; }
+  if(document.visibilityState === 'visible'){
+    unlockAudio();
+    nextTime = actx.currentTime + 0.1;   // don't burst-schedule the missed time
+  }
+});
+
+})();
+</script>
+</body>
+</html>
