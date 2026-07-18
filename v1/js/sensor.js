@@ -142,6 +142,45 @@ const Sensor = (function () {
     touchVelY = 0;
   }
 
+  // ── MOUSE FALLBACK (desktop) ─────────────────────────────────────────
+  // Feeds the same touch accumulator, so downstream modules can't tell a
+  // mouse drag from a finger. Real touches suppress the synthetic mouse
+  // events browsers fire after them.
+
+  var lastRealTouch = 0;
+  var mouseDown = false;
+
+  function mouseBlocked() { return performance.now() - lastRealTouch < 1000; }
+
+  function onMouseDown(e) {
+    if (mouseBlocked()) return;
+    mouseDown = true;
+    raw.touch.active = true;
+    raw.touch.x = e.clientX / window.innerWidth;
+    raw.touch.y = e.clientY / window.innerHeight;
+    raw.touch.startX = raw.touch.x;
+    raw.touch.startY = raw.touch.y;
+    raw.touch.startTime = performance.now();
+    prevTouchX = raw.touch.x;
+    prevTouchY = raw.touch.y;
+    touchVelX = 0;
+    touchVelY = 0;
+  }
+
+  function onMouseMove(e) {
+    if (!mouseDown || mouseBlocked()) return;
+    raw.touch.x = e.clientX / window.innerWidth;
+    raw.touch.y = e.clientY / window.innerHeight;
+  }
+
+  function onMouseUp() {
+    if (!mouseDown) return;
+    mouseDown = false;
+    raw.touch.active = false;
+    touchVelX = 0;
+    touchVelY = 0;
+  }
+
   // ── DEVICE MOTION / ORIENTATION ──────────────────────────────────────
 
   function onMotion(e) {
@@ -218,50 +257,11 @@ const Sensor = (function () {
         return;
       }
 
-      // Chrome iOS: requestPermission returns 'denied' without showing a dialog.
-      // Calling it may actually BLOCK events that would otherwise flow.
-      // Strategy: add listeners FIRST, check if events arrive. If yes = done.
-      // If no events after 2s = try requestPermission as last resort.
-      // If that also fails = show help.
-      var isChrome = /CriOS/.test(navigator.userAgent || '');
-
-      if (isChrome) {
-        // Add listeners immediately — Chrome may send events without permission
-        addListeners();
-        var countBefore = raw.motionEventCount;
-
-        setTimeout(function () {
-          if (raw.motionEventCount > countBefore || raw.motionGranted) {
-            // Events are flowing! Chrome sent them without the dialog.
-            permState = 'granted';
-            dismissHelp();
-            if (typeof window._dlog === 'function') window._dlog('Chrome: events flowing WITHOUT requestPermission');
-          } else {
-            // No events. Try requestPermission as last resort.
-            if (typeof window._dlog === 'function') window._dlog('Chrome: no events, trying requestPermission...');
-            DeviceMotionEvent.requestPermission()
-              .then(function (r) {
-                if (typeof window._dlog === 'function') window._dlog('Chrome requestPermission: ' + r);
-                if (r === 'granted') {
-                  addListeners();
-                  permState = 'granted';
-                  dismissHelp();
-                } else {
-                  permState = 'denied';
-                  showHelp();
-                }
-              })
-              .catch(function () {
-                permState = 'denied';
-                showHelp();
-              });
-          }
-          resolve();
-        }, 2000);
-        return;
-      }
-
-      // Safari iOS: requestPermission works properly — dialog shows.
+      // iOS 13+ (Safari AND Chrome/Firefox, which share WebKit): the dialog
+      // only appears if requestPermission() fires synchronously inside the
+      // user gesture. Never defer it — a deferred call is auto-denied.
+      // Listeners go on first regardless; they're inert until granted.
+      addListeners();
       function withTimeout(promise, ms) {
         return Promise.race([
           promise,
@@ -353,31 +353,19 @@ const Sensor = (function () {
       'padding:16px 20px;border-radius:14px;' +
       'font:14px/1.5 -apple-system,sans-serif;z-index:9999;' +
       'text-align:center;backdrop-filter:blur(8px);';
-    var isChrome = /CriOS/.test(navigator.userAgent || '');
-    if (isChrome) {
-      // Chrome iOS: requestPermission returns denied without dialog.
-      // User must enable in Chrome settings or use Safari instead.
-      el.innerHTML =
-        '<b>Motion access needed</b><br><br>' +
-        'Chrome blocks motion by default.<br>' +
-        'Tap the <b>lock icon</b> in the address bar<br>' +
-        '→ <b>Site Settings</b> → <b>Motion Sensors</b> → Allow<br>' +
-        'Then reload.<br><br>' +
-        '<b>Or open in Safari</b> — it works there.';
-    } else {
-      el.innerHTML =
-        '<b>Motion access needed</b><br>' +
-        'Tap <b>aA</b> in the address bar<br>' +
-        '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
-        'Then reload the page.<br><br>' +
-        '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
-    }
+    el.innerHTML =
+      '<b>Motion access needed</b><br>' +
+      'The easiest fix: <b>reload the page</b> and tap<br>' +
+      '<b>Allow</b> when it asks about motion.<br><br>' +
+      'If no dialog appears: browser settings for this site<br>' +
+      '→ <b>Motion &amp; Orientation</b> → Allow, then reload.<br><br>' +
+      '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
     el.addEventListener('click', function () {
-      if (!isChrome) retryPermissions();  // Only retry on Safari — Chrome can't
+      retryPermissions();
     });
     el.addEventListener('touchstart', function (e) {
       e.stopPropagation();
-      if (!isChrome) retryPermissions();
+      retryPermissions();
     }, { passive: true });
     document.body.appendChild(el);
   }
@@ -392,10 +380,15 @@ const Sensor = (function () {
 
   function init() {
     // Touch listeners first (always work, no permission needed)
-    document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
-    document.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
+    document.addEventListener('touchstart', function (e) { lastRealTouch = performance.now(); onTouchStart(e); }, { passive: true, capture: true });
+    document.addEventListener('touchmove', function (e) { lastRealTouch = performance.now(); onTouchMove(e); }, { passive: true, capture: true });
     document.addEventListener('touchend', onTouchEnd, { capture: true });
     document.addEventListener('touchcancel', onTouchEnd, { capture: true });
+
+    // Desktop: mouse drives the touch channel
+    document.addEventListener('mousedown', onMouseDown, { capture: true });
+    document.addEventListener('mousemove', onMouseMove, { capture: true });
+    document.addEventListener('mouseup', onMouseUp, { capture: true });
 
     computeTimeOfDay();
     setInterval(computeTimeOfDay, 60000);
