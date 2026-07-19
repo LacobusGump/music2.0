@@ -33,7 +33,7 @@ window.RADIO=(function(){
     {t:"Gap Breath",s:"the trail",f:J+"gap_breath_prime.mp3",page:"trail",url:"/trail/"},
     {t:"GCD",s:"the factor every coupling shares",f:A+"gcd.mp3",page:"creation",url:"/creation/"},
     {t:"Muse ick",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
-    {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/research/science-tree/"},
+    {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/trail/"},
     {t:"Exact Frequency",s:"Maxwell, coupled",f:A+"exact_frequency_lock.mp3",page:"electromagnetism",url:"/research/electromagnetism/"},
     {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",page:"quantum-harmonics",url:"/research/quantum-harmonics/",lead:"jim",cast:"need: drummer"},
     {t:"Triple Bond",s:"freezing point",f:A+"triple_bond.mp3",page:"chemistry",url:"/research/chemistry/"},
