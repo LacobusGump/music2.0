@@ -5,17 +5,6 @@
   document.head.appendChild(s);
 })();
 
-// Load the mirror-style first timer visual. This page already imports harmonia-thread.
-(function(){
-  var path = location.pathname;
-  if(path !== '/start-here/' && path !== '/start-here/index.html') return;
-  if(document.querySelector('script[src^="/js/first-timer-mirror.js"]')) return;
-  var s = document.createElement('script');
-  s.src = '/js/first-timer-mirror.js?v=1';
-  s.defer = true;
-  document.body.appendChild(s);
-})();
-
 // ═══════════════════════════════════════════════════════════════════
 // HARMONIA THREAD — She follows the reader.
 // An orb drifts alongside whatever paragraph is centered in view.

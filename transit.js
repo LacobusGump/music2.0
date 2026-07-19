@@ -34,15 +34,6 @@ function simplifyHomeHarmoniaMentions(){
   keepGateSimple();
 }
 
-function installFirstTimerHome(){
-  var path = location.pathname;
-  if(path !== '/' && path !== '/index.html') return;
-  var doors = document.querySelector('.doors');
-  if(!doors || document.querySelector('.first-timer-band')) return;
-  // Big "First Timer" band removed — the small "first timer?" link top-right covers it
-  var topStart = document.querySelector('.toplinks a[href="/start-here/"]');
-  if(topStart) topStart.textContent = 'first timer?';
-}
 
 function initCanvas(){
   if(prefersReducedMotion || canvas) return;
@@ -182,7 +173,7 @@ function prefetch(){
 
 function boot(){
   simplifyHomeHarmoniaMentions();
-  installFirstTimerHome();
+  
   connectForgettingInterlude();
   if(!assemble()) cleanup();
 
