@@ -32,18 +32,22 @@
     bug.id='love-bug';
     bug.style.cssText='margin:48px auto 0;padding:18px 0 0;border-top:1px solid rgba(184,117,58,0.1);text-align:center;';
 
+    // Hearing is always free (the radio streams everything whole). The bug
+    // sells the FILE — this one song as a download, a dollar, yours forever.
     function render(unlocked){
       if(unlocked){
-        bug.innerHTML='<div style="font-family:Futura,\'Century Gothic\',system-ui,sans-serif;font-size:0.5em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.4);">— unlocked —</div>'+
-          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="/radio/?i='+songIdx+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
+        var dlname=String(song.t).replace(/[^\w \-()'!?.]/g,'').trim()+'.mp3';
+        bug.innerHTML='<div style="font-family:Futura,\'Century Gothic\',system-ui,sans-serif;font-size:0.5em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.4);">— yours —</div>'+
+          '<div style="font-size:0.72em;color:#8a7560;font-family:Georgia,serif;margin-top:5px;font-style:italic;">'+song.t+' · <a href="'+song.f+'" download="'+dlname+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">download ⬇</a> · <a href="/radio/?i='+songIdx+'" style="color:#b8753a;text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.25);">play it →</a></div>';
         bug.style.cursor='default';
       } else {
         bug.innerHTML='<div style="font-size:1.4em;cursor:pointer;" id="lb-icon">🦋</div>'+
           '<div style="font-family:Futura,\'Century Gothic\',system-ui,sans-serif;font-size:0.46em;letter-spacing:0.16em;text-transform:uppercase;color:rgba(184,117,58,0.38);margin-top:5px;">'+song.t+' · $1</div>'+
-          '<div style="font-size:0.62em;color:#5a4a3a;font-style:italic;font-family:Georgia,serif;margin-top:3px;">tap the bug to hear it</div>';
+          '<div style="font-size:0.62em;color:#5a4a3a;font-style:italic;font-family:Georgia,serif;margin-top:3px;">hear it free on <a href="/radio/?i='+songIdx+'" style="color:#8a7560;">the radio</a> · tap the bug to take the file home</div>';
         bug.style.cursor='pointer';
-        bug.onclick=function(){
-          try{ sessionStorage.setItem('gump_pend',JSON.stringify({slug:fslug,ts:Date.now()})); }catch(e){}
+        bug.onclick=function(e){
+          if(e.target&&e.target.closest&&e.target.closest('a')) return;
+          try{ sessionStorage.setItem('gump_pend',JSON.stringify({slug:fslug,ts:Date.now()})); }catch(e2){}
           location.href=LINK_SONG;
         };
       }

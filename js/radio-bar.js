@@ -18,33 +18,9 @@
     var PLAY = R.list, KEY = 'gump_radio', CDN = R.cdn || '', triedFb = false;
     var pageIdx = R.indexFor(R.slug());
 
-    // ── Paywall — the bar rides the same album the /radio/ page gates, so it has to
-    // respect the same lock. Before this, next/ended just walked PLAY forward with zero
-    // check — the whole album played free from the top bar on any page, no Universal Key
-    // needed. gump-unlock.js is the one place that knows if the $30 pass is still valid;
-    // load it if this page didn't already (most pages that carry the bar never needed it
-    // before now), then reuse the exact same three free paths /radio/ honors: the Harmonia
-    // playlist, an already-owned per-song unlock, and the Universal Key itself. ──
-    if (!window.gumpUnlockAll){
-      var us = document.createElement('script'); us.src = '/js/gump-unlock.js';
-      document.head.appendChild(us);
-    }
-    var harmoniaPages = {};
-    (function(){
-      var pl = R.playlists || [];
-      for (var i = 0; i < pl.length; i++){
-        if (pl[i].name !== 'for Harmonia') continue;
-        for (var j = 0; j < pl[i].pages.length; j++) harmoniaPages[pl[i].pages[j]] = true;
-      }
-    })();
-    var harmoniaMode = !!localStorage.getItem('gump_harmonia');
-    function trackSlug(p){ return (p.f || '').split('/').pop().replace(/\.[^.]+$/, ''); }
-    function songUnlocks(){ try { return JSON.parse(localStorage.getItem('gump_unlocks') || '{}'); } catch(e){ return {}; } }
-    function isUnlocked(p){
-      if (harmoniaMode && harmoniaPages[p.page]) return true;
-      var u = songUnlocks();
-      return !!((window.gumpUnlockAll && window.gumpUnlockAll()) || u[trackSlug(p)]);
-    }
+    // Listening is free everywhere — every song streams whole from the bar,
+    // no key, no lock. What's for sale (over on /radio/) is the album as
+    // files: all 33 downloads, yours forever. The old lock plumbing is gone.
 
     var st = {}; try { st = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch(e){}
     var manual = !!st.manual; // did they ever take the wheel (hit skip)? then no page may interrupt their stream
@@ -148,16 +124,10 @@
     function pauseOthers(){ var all = document.getElementsByTagName('audio'); for (var i = 0; i < all.length; i++){ if (all[i] !== a && !all[i].paused) all[i].pause(); } }
     function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(function(err){ if (err && err.name === 'AbortError') return; armGesture(); }); } // ignore benign aborts from rapid skips
 
-    // stop cold on a locked track instead of ever letting next/ended walk past the free set
-    function lockOut(){
-      a.pause(); wantPlay = false; onPause();
-      bar.classList.remove('cued');
-      titleEl.textContent = '🔒 unlock the album'; titleEl.href = '/radio/'; titleEl.title = 'get the Universal Key';
-    }
-    // like setTrack, but refuses to load a locked track — returns false and locks the bar out instead
+    // MODEL CHANGE 2026-07-19: listening is free everywhere — the bar never
+    // locks anyone out. The $30 buys the album as files, over on /radio/.
     function goTo(i){
       var target = ((i % PLAY.length) + PLAY.length) % PLAY.length;
-      if (!isUnlocked(PLAY[target])){ lockOut(); return false; }
       setTrack(target); return true;
     }
 
@@ -201,9 +171,9 @@
       if (fails++ < PLAY.length){ setTrack(idx + 1); if (wantPlay) play(); } // bad track never stalls the stream
     });
 
-    playBtn.onclick = function(){ if (a.paused){ if (!isUnlocked(PLAY[idx])){ lockOut(); return; } play(); } else { a.pause(); wantPlay = false; onPause(); } };
-    nextBtn.onclick = function(){ manual = true; if (goTo(idx + 1)) play(); }; // taking the wheel — from here on, pages don't interrupt (but still can't skip past a lock)
-    a.addEventListener('ended', function(){ fails = 0; if (goTo(idx + 1)) play(); }); // continuous, until it hits the paywall
+    playBtn.onclick = function(){ if (a.paused){ play(); } else { a.pause(); wantPlay = false; onPause(); } };
+    nextBtn.onclick = function(){ manual = true; if (goTo(idx + 1)) play(); }; // taking the wheel — from here on, pages don't interrupt
+    a.addEventListener('ended', function(){ fails = 0; if (goTo(idx + 1)) play(); }); // continuous — the whole album streams free
     a.addEventListener('play', onPlay); a.addEventListener('pause', onPause);
     var tick = 0;
     a.addEventListener('timeupdate', function(){ if (a.duration) prog.style.width = (a.currentTime / a.duration * 100) + '%'; if (++tick % 4 === 0) save(); });
@@ -261,7 +231,7 @@
     // carry the stream across the page change — resume now if allowed, otherwise on first touch.
     // guards a stale carried session too (an unlock that expired, or a track that was never
     // actually unlocked before this fix shipped) instead of trusting the old sessionStorage blindly.
-    if (wantPlay && isUnlocked(PLAY[idx])){ play(); } else { onPause(); if (wantPlay) lockOut(); }
+    if (wantPlay){ play(); } else { onPause(); }
   }
   // fire as early as possible (deferred scripts run after parse, so the body already exists)
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
