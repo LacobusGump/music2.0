@@ -20,11 +20,14 @@ h1{font-family:Futura,'Century Gothic',sans-serif;font-weight:300;font-size:1.5e
 #begin:active{background:rgba(255,214,140,0.25);}
 #hint{position:fixed;bottom:8vh;left:0;right:0;text-align:center;font-family:Georgia,serif;font-size:0.95em;color:rgba(255,233,189,0.65);opacity:0;transition:opacity 1.5s ease;pointer-events:none;z-index:5;text-shadow:0 0 12px rgba(0,0,0,0.8);}
 #back{position:fixed;top:12px;right:14px;z-index:6;font-family:Futura,'Century Gothic',sans-serif;font-size:0.58em;letter-spacing:0.18em;color:rgba(255,233,189,0.28);text-decoration:none;text-transform:uppercase;}
+#mode{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:6;display:none;opacity:0;transition:opacity 1.2s ease;background:rgba(255,214,140,0.08);border:1px solid rgba(255,214,140,0.3);border-radius:999px;padding:9px 22px;color:rgba(255,233,189,0.75);font-family:Futura,'Century Gothic',sans-serif;font-size:0.62em;letter-spacing:0.22em;text-transform:uppercase;cursor:pointer;}
+#mode:active{background:rgba(255,214,140,0.2);}
 </style>
 </head>
 <body>
 <canvas id="sky"></canvas>
 <a id="back" href="/products/">beGump</a>
+<button id="mode">♪ the real song</button>
 <div id="hint"></div>
 <div id="boot">
   <div class="boot-in">
@@ -56,6 +59,17 @@ var KEY_ROOT = 62;                    // D4 in MIDI; everything is D major
 var MAJOR = [0, 2, 4, 5, 7, 9, 11];
 var PENT  = [0, 2, 4, 7, 9];
 
+// The real song — Coupled Dynamics, as five aligned stems. Measured from
+// the audio itself: 124 BPM, B-flat major, all stems sample-locked at 0.
+// Stem mode doesn't imitate a band — it conducts the actual record.
+var STEM_BASE = '/v5/stems/coupled_dynamics/';
+var STEM_LIST = ['bass', 'drums', 'synth', 'vocals', 'other'];
+var STEM_BPM = 124;
+var STEM_ROOT = 58;                   // Bb3 — melody range sits where D major's did
+var stemMode = false;
+
+function keyRoot(){ return stemMode ? STEM_ROOT : KEY_ROOT; }
+
 function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
 
 // Triad (in semitones from key root) for a scale degree 0-6
@@ -82,14 +96,14 @@ var chordTones = chordSemis(0);       // current chord semis
 function walkToMidi(pos){
   pos = Math.max(0, Math.min(14, pos));
   var oct = Math.floor(pos / 5);
-  return KEY_ROOT + PENT[pos % 5] + 12 * oct;
+  return keyRoot() + PENT[pos % 5] + 12 * oct;
 }
 
 function snapToChord(midi){
   var best = midi, dist = 99;
   for(var o = -12; o <= 24; o += 12){
     for(var i = 0; i < 3; i++){
-      var c = KEY_ROOT + chordTones[i] + o;
+      var c = keyRoot() + chordTones[i] + o;
       var d = Math.abs(c - midi);
       if(d < dist){ dist = d; best = c; }
     }
@@ -215,7 +229,7 @@ function padChord(t, brightness){
   padNodes = [];
   var lvl = 0.05;
   for(var k = 0; k < 3; k++){
-    var midi = KEY_ROOT + chordTones[k];
+    var midi = keyRoot() + chordTones[k];
     var f = mtof(midi);
     var o1 = actx.createOscillator(); o1.type = 'sawtooth';
     var o2 = actx.createOscillator(); o2.type = 'sawtooth';
@@ -300,6 +314,35 @@ function snapToChordish(midi){
   return Math.random() < 0.5 ? snapToChord(midi) : midi;
 }
 
+// The strike — a quick hit deserves an immediate answer, scaled to how
+// hard you hit. Soft hit = one pluck. Hard hit = a three-string strum.
+// This is the middle ground between the slow-wave harp and the flourish,
+// so fast playing becomes rhythm instead of falling into the cooldown gap.
+var strikeAt = -9, strumAt = -9;
+function strike(vel, big){
+  if(!actx || !running){ return; }
+  var t = actx.currentTime;
+  var reg = tiltY < -0.2 ? 12 : 0;
+  if(big){
+    if(t - strumAt < 0.22){ return; }
+    strumAt = t; strikeAt = t;
+    for(var i = 0; i < 3; i++){
+      pluck(t + i * 0.028, keyRoot() + 12 + chordTones[i] + reg,
+            Math.min(1, 0.5 + vel * 0.5) - i * 0.06, (i - 1) * 0.3);
+    }
+    bell(t + 0.02, snapToChord(walkToMidi(8 + Math.round(vel * 4))) + reg,
+         Math.min(1, 0.45 + vel * 0.5), tiltX * 0.4);
+    noteGlow(t, 1.0);
+  } else {
+    if(t - strikeAt < 0.13){ return; }
+    strikeAt = t;
+    pluck(t, snapToChord(walkToMidi(6 + Math.round(vel * 6))) + reg,
+          0.35 + vel * 0.5, tiltX * 0.5);
+    noteGlow(t, 0.5);
+  }
+  energyVel += 0.8 + vel * 1.4;        // the hit kicks the water in the bottle
+}
+
 // ── THE WAND — input → expression ──────────────────────────────────
 // Energy moves like water in a half-full bottle: momentum, overshoot,
 // damping. Never a hard snap to a value.
@@ -318,6 +361,7 @@ function springStep(dt){
   if(energy > 1){ energy = 1; energyVel *= -0.3; }
 }
 
+var lastMag = 0;
 function onMotion(e){
   var a = e.acceleration;
   if(!a || (a.x === null && a.y === null)){ a = e.accelerationIncludingGravity; }
@@ -327,10 +371,18 @@ function onMotion(e){
   else { mag = Math.abs(mag - 9.81); }
   var target = Math.max(0, Math.min(1, (mag - 0.4) / 7));
   if(target > energyTarget){ energyTarget = target; }
-  if(mag > 15 && actx && actx.currentTime - flickAt > 1.4){
+  // jerk — how sharply the motion CHANGED — is what a hit feels like.
+  // Raw magnitude can't tell a hit from a hard steady wave; the jump can.
+  var jerk = mag - lastMag; lastMag = mag;
+  if(!actx){ return; }
+  if(mag > 15 && actx.currentTime - flickAt > 0.7){
     flickAt = actx.currentTime;
     flourish(actx.currentTime + 0.02);
     burst();
+  } else if(jerk > 6.5){
+    strike(Math.min(1, (jerk - 6.5) / 8), true);
+  } else if(jerk > 3.2){
+    strike(Math.min(1, (jerk - 3.2) / 6), false);
   }
 }
 
@@ -354,15 +406,20 @@ function ptrMove(x, y){
   var dt = Math.max(8, now - ptr.lastT);
   var dx = x - ptr.px, dy = y - ptr.py;
   var sp = Math.sqrt(dx * dx + dy * dy) / (dt / 1000);
+  var spJump = sp - ptr.speed;         // sudden speed-up = a hit, same as jerk
   ptr.speed = sp;
   var target = Math.max(0, Math.min(1, sp / 2.4));
   if(target > energyTarget){ energyTarget = target; }
   tiltX += ((x * 2 - 1) - tiltX) * 0.2;
   tiltY += ((y * 2 - 1) - tiltY) * 0.2;
-  if(sp > 3.4 && actx && actx.currentTime - flickAt > 1.4){
-    flickAt = actx.currentTime;
-    flourish(actx.currentTime + 0.02);
-    burst();
+  if(actx){
+    if(sp > 3.4 && actx.currentTime - flickAt > 0.7){
+      flickAt = actx.currentTime;
+      flourish(actx.currentTime + 0.02);
+      burst();
+    } else if(spJump > 1.6){
+      strike(Math.min(1, (spJump - 1.6) / 2.2), spJump > 2.6);
+    }
   }
   ptr.px = x; ptr.py = y; ptr.lastT = now;
 }
@@ -372,6 +429,7 @@ function wireInput(){
   window.addEventListener('devicemotion', onMotion, { passive: true });
   window.addEventListener('deviceorientation', onOrient, { passive: true });
   document.addEventListener('touchstart', function(e){
+    if(e.target && e.target.closest && e.target.closest('button,a')){ return; }
     var t = e.touches[0];
     ptrDown(t.clientX / innerWidth, t.clientY / innerHeight);
   }, { passive: true });
@@ -381,6 +439,7 @@ function wireInput(){
   }, { passive: true });
   document.addEventListener('touchend', ptrUp, { passive: true });
   document.addEventListener('mousedown', function(e){
+    if(e.target && e.target.closest && e.target.closest('button,a')){ return; }
     ptrDown(e.clientX / innerWidth, e.clientY / innerHeight);
   });
   document.addEventListener('mousemove', function(e){
@@ -401,6 +460,139 @@ function askMotionPermission(){
     asks.push(DeviceOrientationEvent.requestPermission().catch(function(){ return 'denied'; }));
   }
   return Promise.all(asks);
+}
+
+// ── THE REAL SONG — stems as the orchestra ─────────────────────────
+// Five aligned stems of Coupled Dynamics stream as looping layers.
+// Energy decides who's on stage: still = the quiet heart of the song,
+// full wave = the whole record. The wand's harp plays on top, retuned
+// to the song's own key, so nothing you strike can clash with it.
+// Media elements (not decoded buffers) keep phone memory tiny.
+
+var stemEls = null, stemNodes = null, stemBus = null, stemLP = null;
+var stemsReady = false, stemFail = false, lastStemSync = 0, lastStemTier = -1;
+
+// who plays at each tier (gain per tier 0-3), tuned to the song's anatomy:
+// synth is the intro's heart, vocals carry the middle, drums are the reward.
+var STEM_TIER = {
+  bass:   [0.55, 0.9, 1.0, 1.0],
+  drums:  [0.0,  0.3, 0.8, 1.0],
+  synth:  [0.9,  1.0, 1.0, 1.0],
+  vocals: [0.25, 0.65, 1.0, 1.0],
+  other:  [0.8,  0.9, 1.0, 1.0]
+};
+
+function loadStems(){
+  if(stemEls){ return; }
+  stemEls = {};
+  var left = STEM_LIST.length;
+  STEM_LIST.forEach(function(n){
+    var a = new Audio();
+    a.src = STEM_BASE + n + '.mp3';
+    a.preload = 'auto'; a.loop = true;
+    var armed = false;
+    a.addEventListener('canplaythrough', function(){
+      if(armed){ return; }
+      armed = true;
+      if(--left === 0 && !stemFail && !stemsReady){ stemsReady = true; showModePill(); }
+    });
+    a.addEventListener('error', function(){ stemFail = true; });
+    stemEls[n] = a;
+    a.load();
+  });
+  // iOS fires canplaythrough lazily sometimes — poll readyState as backup
+  var poll = setInterval(function(){
+    if(stemsReady || stemFail){ clearInterval(poll); return; }
+    var ok = true;
+    STEM_LIST.forEach(function(n){ if(stemEls[n].readyState < 3){ ok = false; } });
+    if(ok){ stemsReady = true; showModePill(); clearInterval(poll); }
+  }, 2000);
+}
+
+function buildStemGraph(){
+  stemBus = actx.createGain(); stemBus.gain.value = 0.85;
+  stemLP = actx.createBiquadFilter();
+  stemLP.type = 'lowpass'; stemLP.frequency.value = 9000; stemLP.Q.value = 0.4;
+  stemBus.connect(stemLP); stemLP.connect(comp);
+  stemNodes = {};
+  STEM_LIST.forEach(function(n){
+    var src = actx.createMediaElementSource(stemEls[n]);
+    var g = actx.createGain(); g.gain.value = 0;
+    src.connect(g); g.connect(stemBus);
+    stemNodes[n] = g;
+  });
+}
+
+function stemMixForTier(){
+  if(!stemNodes){ return; }
+  var t = actx.currentTime;
+  STEM_LIST.forEach(function(n){
+    stemNodes[n].gain.setTargetAtTime(stemMode ? STEM_TIER[n][tier] : 0, t, 0.5);
+  });
+}
+
+function padSilence(t){
+  for(var i = 0; i < padNodes.length; i++){
+    var n = padNodes[i];
+    n.g.gain.cancelScheduledValues(t);
+    n.g.gain.setValueAtTime(n.g.gain.value || 0.0001, t);
+    n.g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    n.o1.stop(t + 1.4); n.o2.stop(t + 1.4);
+  }
+  padNodes = [];
+}
+
+function setStemMode(on){
+  if(on && !stemsReady){ return; }
+  stemMode = on;
+  SP16 = 60 / (on ? STEM_BPM : BPM) / 4;
+  var t = actx.currentTime;
+  if(on){
+    if(!stemNodes){ buildStemGraph(); }
+    chordDeg = 0; chordTones = chordSemis(0);   // strikes ride the song's I chord + pentatonic
+    padSilence(t);
+    var t0 = stemEls.bass.currentTime || 0;
+    STEM_LIST.forEach(function(n){
+      stemEls[n].currentTime = t0;
+      stemEls[n].play().catch(function(){});
+    });
+  } else {
+    STEM_LIST.forEach(function(n){ stemEls[n].pause(); });
+    chordDeg = progression[barOfProg];
+    chordTones = chordSemis(chordDeg);
+  }
+  lastStemTier = -1;
+  stemMixForTier();
+  var pill = document.getElementById('mode');
+  pill.textContent = on ? '✦ music box' : '♪ the real song';
+}
+
+function showModePill(){
+  var pill = document.getElementById('mode');
+  pill.style.display = 'block';
+  requestAnimationFrame(function(){ pill.style.opacity = '1'; });
+}
+
+// stillness dims the record like a lamp, motion opens it back up
+var lastStemF = -1;
+function stemFilter(en){
+  if(!stemLP){ return; }
+  var open = Math.min(1, en * 0.85 + Math.max(0, -tiltY) * 0.3);
+  if(Math.abs(open - lastStemF) < 0.02){ return; }
+  lastStemF = open;
+  stemLP.frequency.setTargetAtTime(900 + open * 11000, actx.currentTime, 0.25);
+}
+
+// the elements drift apart by milliseconds over minutes — herd them back
+function stemSyncCheck(){
+  if(!stemMode || !stemEls){ return; }
+  if(actx.currentTime - lastStemSync < 4){ return; }
+  lastStemSync = actx.currentTime;
+  var m = stemEls.bass.currentTime;
+  for(var i = 1; i < STEM_LIST.length; i++){
+    var el = stemEls[STEM_LIST[i]];
+    if(Math.abs(el.currentTime - m) > 0.06){ el.currentTime = m; }
+  }
 }
 
 // ── CONDUCTOR — lookahead scheduler on the audio clock ─────────────
@@ -448,37 +640,44 @@ function scheduleStep(s, t){
 
   if(inBar === 0){
     barOfProg = Math.floor(s / 16) % 4;
-    if(barOfProg === 0 && Math.random() < 0.35){
-      progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+    if(!stemMode){
+      if(barOfProg === 0 && Math.random() < 0.35){
+        progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+      }
+      chordDeg = progression[barOfProg];
+      chordTones = chordSemis(chordDeg);
+      padChord(t, 0.3 + energy * 0.6);
     }
-    chordDeg = progression[barOfProg];
-    chordTones = chordSemis(chordDeg);
-    padChord(t, 0.3 + energy * 0.6);
     noteGlow(t, 1.2);
   }
 
   var reg = tiltY < -0.2 ? 12 : 0;    // tip the wand up → everything lifts
 
-  // bass — root heartbeat
-  if(inBar === 0){ bassNote(t, KEY_ROOT - 24 + chordTones[0], 0.9, 1.6); }
-  if(inBar === 8 && tier >= 1){ bassNote(t, KEY_ROOT - 24 + chordTones[0], 0.6, 1.2); }
-  if(tier >= 3 && (inBar === 4 || inBar === 12)){
-    bassNote(t, KEY_ROOT - 12 + chordTones[0], 0.4, 0.6);
+  // the synthesized band plays only when the real one isn't on stage
+  if(!stemMode){
+    // bass — root heartbeat
+    if(inBar === 0){ bassNote(t, keyRoot() - 24 + chordTones[0], 0.9, 1.6); }
+    if(inBar === 8 && tier >= 1){ bassNote(t, keyRoot() - 24 + chordTones[0], 0.6, 1.2); }
+    if(tier >= 3 && (inBar === 4 || inBar === 12)){
+      bassNote(t, keyRoot() - 12 + chordTones[0], 0.4, 0.6);
+    }
+
+    // drums
+    if(tier >= 1 && inBar === 0){ kick(t, 0.5 + energy * 0.4); }
+    if(tier >= 2 && inBar === 8){ kick(t, 0.45); }
+    if(tier >= 3 && inBar === 10){ kick(t, 0.3); }
+    if(tier >= 2 && (inBar === 4 || inBar === 12)){ hat(t, 0.8); }
+    if(tier >= 3 && inBar % 2 === 0){ shaker(t, inBar % 4 === 2 ? 0.9 : 0.5); }
   }
 
-  // drums
-  if(tier >= 1 && inBar === 0){ kick(t, 0.5 + energy * 0.4); }
-  if(tier >= 2 && inBar === 8){ kick(t, 0.45); }
-  if(tier >= 3 && inBar === 10){ kick(t, 0.3); }
-  if(tier >= 2 && (inBar === 4 || inBar === 12)){ hat(t, 0.8); }
-  if(tier >= 3 && inBar % 2 === 0){ shaker(t, inBar % 4 === 2 ? 0.9 : 0.5); }
-
-  // harp arpeggio — chord tones climbing, faster with energy
+  // harp arpeggio — chord tones climbing, faster with energy.
+  // In stem mode it's sparser: the record carries the groove, the harp decorates.
   var arpEvery = tier >= 3 ? 2 : (tier === 2 ? 4 : 8);
+  if(stemMode){ arpEvery *= 2; }
   if(tier >= 1 && inBar % arpEvery === 0){
     var idx = Math.floor(inBar / arpEvery);
     var semi = chordTones[idx % 3] + 12 * Math.floor(idx / 3 % 2);
-    pluck(t, KEY_ROOT + 12 + semi + reg, 0.4 + energy * 0.4, (idx % 3 - 1) * 0.35);
+    pluck(t, keyRoot() + 12 + semi + reg, 0.4 + energy * 0.4, (idx % 3 - 1) * 0.35);
     noteGlow(t, 0.4);
   }
 
@@ -518,7 +717,13 @@ var W = 0, H = 0, parts = [], glows = [], lastFrame = 0;
 function resize(){ W = cv.width = innerWidth; H = cv.height = innerHeight; }
 window.addEventListener('resize', resize); resize();
 
-function chordHue(){ return (200 + chordTones[0] * 22) % 360; }
+function chordHue(){
+  if(stemMode && stemEls){
+    // in the real song, color rides the record — a slow sunrise over 161s
+    return (200 + (stemEls.bass.currentTime / 161) * 140) % 360;
+  }
+  return (200 + chordTones[0] * 22) % 360;
+}
 
 function noteGlow(atTime, size){
   glows.push({ at: atTime, size: size });
@@ -547,7 +752,15 @@ function draw(now){
 
   springStep(dt);
   energyTarget *= Math.pow(0.28, dt);          // input fades → music settles
-  if(running){ tierFromEnergy(); padBrightness(0.3 + energy * 0.6); }
+  if(running){
+    tierFromEnergy();
+    padBrightness(0.3 + energy * 0.6);
+    if(stemMode){
+      if(tier !== lastStemTier){ lastStemTier = tier; stemMixForTier(); }
+      stemFilter(energy);
+      stemSyncCheck();
+    }
+  }
 
   var hue = chordHue();
   var g = cx.createRadialGradient(W/2, H*0.42, 0, W/2, H*0.42, Math.max(W, H) * 0.75);
@@ -627,7 +840,16 @@ function begin(){
   step = 0;
   nextTime = actx.currentTime + 0.1;
   tickTimer = setInterval(tick, 30);
+
+  loadStems();                         // the real song downloads while you play
 }
+
+var modeBtn = document.getElementById('mode');
+function toggleMode(){ setStemMode(!stemMode); }
+modeBtn.addEventListener('click', toggleMode);
+modeBtn.addEventListener('touchend', function(e){
+  e.preventDefault(); toggleMode();
+}, { passive: false });
 
 document.getElementById('begin').addEventListener('click', begin);
 document.getElementById('begin').addEventListener('touchend', function(e){
