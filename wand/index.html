@@ -350,7 +350,6 @@ function strike(vel, big){
 var energy = 0, energyVel = 0, energyTarget = 0;
 var tiltX = 0, tiltY = 0;             // -1..1 smoothed (gamma, beta)
 var flickAt = -9;                     // last flourish time (actx clock)
-var motionSeen = false;
 
 function springStep(dt){
   var k = 26, damp = 7.5;
@@ -367,8 +366,7 @@ function onMotion(e){
   if(!a || (a.x === null && a.y === null)){ a = e.accelerationIncludingGravity; }
   if(!a){ return; }
   var mag = Math.sqrt((a.x||0)*(a.x||0) + (a.y||0)*(a.y||0) + (a.z||0)*(a.z||0));
-  if(e.acceleration && e.acceleration.x !== null){ motionSeen = true; }
-  else { mag = Math.abs(mag - 9.81); }
+  if(!(e.acceleration && e.acceleration.x !== null)){ mag = Math.abs(mag - 9.81); }
   var target = Math.max(0, Math.min(1, (mag - 0.4) / 7));
   if(target > energyTarget){ energyTarget = target; }
   // jerk — how sharply the motion CHANGED — is what a hit feels like.
@@ -394,10 +392,10 @@ function onOrient(e){
 }
 
 // Pointer (touch or mouse) — the wand for hands and desktops
-var ptr = { down: false, x: 0.5, y: 0.5, px: 0.5, py: 0.5, speed: 0, lastT: 0 };
+var ptr = { down: false, px: 0.5, py: 0.5, speed: 0, lastT: 0 };
 
 function ptrDown(x, y){
-  ptr.down = true; ptr.x = x; ptr.y = y; ptr.px = x; ptr.py = y;
+  ptr.down = true; ptr.px = x; ptr.py = y;
   ptr.lastT = performance.now();
 }
 function ptrMove(x, y){
@@ -523,11 +521,11 @@ function buildStemGraph(){
   });
 }
 
-function stemMixForTier(){
+function stemMixForTier(tau){
   if(!stemNodes){ return; }
   var t = actx.currentTime;
   STEM_LIST.forEach(function(n){
-    stemNodes[n].gain.setTargetAtTime(stemMode ? STEM_TIER[n][tier] : 0, t, 0.5);
+    stemNodes[n].gain.setTargetAtTime(stemMode ? STEM_TIER[n][tier] : 0, t, tau || 0.5);
   });
 }
 
@@ -542,11 +540,13 @@ function padSilence(t){
   padNodes = [];
 }
 
+var stemPauseTimer = null;
 function setStemMode(on){
   if(on && !stemsReady){ return; }
   stemMode = on;
   SP16 = 60 / (on ? STEM_BPM : BPM) / 4;
   var t = actx.currentTime;
+  if(stemPauseTimer){ clearTimeout(stemPauseTimer); stemPauseTimer = null; }
   if(on){
     if(!stemNodes){ buildStemGraph(); }
     chordDeg = 0; chordTones = chordSemis(0);   // strikes ride the song's I chord + pentatonic
@@ -556,13 +556,19 @@ function setStemMode(on){
       stemEls[n].currentTime = t0;
       stemEls[n].play().catch(function(){});
     });
+    lastStemTier = -1;
+    stemMixForTier();                  // ramps up from 0 — no click on entry
   } else {
-    STEM_LIST.forEach(function(n){ stemEls[n].pause(); });
     chordDeg = progression[barOfProg];
     chordTones = chordSemis(chordDeg);
+    padChord(t + 0.05, 0.3 + energy * 0.6);     // the band comes straight back, no bar-boundary hole
+    lastStemTier = -1;
+    stemMixForTier(0.12);              // fast fade OUT first…
+    stemPauseTimer = setTimeout(function(){     // …then pause, so the record never clicks off
+      stemPauseTimer = null;
+      if(!stemMode && stemEls){ STEM_LIST.forEach(function(n){ stemEls[n].pause(); }); }
+    }, 500);
   }
-  lastStemTier = -1;
-  stemMixForTier();
   var pill = document.getElementById('mode');
   pill.textContent = on ? '✦ music box' : '♪ the real song';
 }
@@ -861,6 +867,16 @@ document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
     unlockAudio();
     nextTime = actx.currentTime + 0.1;   // don't burst-schedule the missed time
+    // iOS pauses media elements in the background — bring the record back,
+    // together, or the harp returns to a silent stage
+    if(stemMode && stemEls){
+      lastStemSync = 0;
+      var t0 = stemEls.bass.currentTime || 0;
+      STEM_LIST.forEach(function(n){
+        stemEls[n].currentTime = t0;
+        stemEls[n].play().catch(function(){});
+      });
+    }
   }
 });
 

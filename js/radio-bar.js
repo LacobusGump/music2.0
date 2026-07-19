@@ -186,7 +186,7 @@
     try { var sp = window.speechSynthesis; if (sp && sp.speak) { var _speak = sp.speak.bind(sp); sp.speak = function(u){ if (!a.paused) a.pause(); return _speak(u); }; } } catch(e){}
 
     // ── The Egg: a reading reward. Drop the literal text "(egg)" anywhere deep in a page.
-    // Whoever hunts it down clicks it — this page's song unlocks in the radio, and the egg
+    // Whoever hunts it down clicks it — this page's song starts playing, and the egg
     // becomes a door to the whole album. No one reads walls of text; but they'll chase an
     // egg, and the chase IS the read. One trigger, one radio — nothing to fall out of sync.
     // Walking every text node in the page is real work almost every page load pays for zero
@@ -229,8 +229,6 @@
     });
 
     // carry the stream across the page change — resume now if allowed, otherwise on first touch.
-    // guards a stale carried session too (an unlock that expired, or a track that was never
-    // actually unlocked before this fix shipped) instead of trusting the old sessionStorage blindly.
     if (wantPlay){ play(); } else { onPause(); }
   }
   // fire as early as possible (deferred scripts run after parse, so the body already exists)

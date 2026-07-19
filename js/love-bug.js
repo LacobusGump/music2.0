@@ -15,16 +15,15 @@
     var fslug=(song.f||'').split('/').pop().replace(/\.[^.]+$/,'');
     var songIdx=R.list.indexOf(song); // direct index — bypasses SHARED slug redirects
 
-    var HARMONIA_PAGES={framework:1,'computation-floor':1,'how-we-work':1,'science-tree':1,chemistry:1,alzheimers:1,'bird-coupling':1,harmonia:1,'the-loop':1};
     var LINK_SONG='https://buy.stripe.com/00wcN5clOgVb10N5PWfIs0h'; // $1 One Key — same link as /radio/
 
+    // owns the album (u.all) or this one song (love-bug / $1 purchase).
+    // Checked directly — no dependency on gump-unlock.js being loaded here.
     function isUnlocked(){
       try{
         var u=JSON.parse(localStorage.getItem('gump_unlocks')||'{}');
-        if((window.gumpUnlockAll&&window.gumpUnlockAll())||u[fslug]) return true;
-      }catch(e){}
-      if(!!localStorage.getItem('gump_harmonia') && HARMONIA_PAGES[slug]) return true;
-      return false;
+        return !!(u.all||u[fslug]);
+      }catch(e){ return false; }
     }
 
     var wrap=document.querySelector('.page')||document.body;
