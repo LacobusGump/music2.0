@@ -59,16 +59,33 @@ var KEY_ROOT = 62;                    // D4 in MIDI; everything is D major
 var MAJOR = [0, 2, 4, 5, 7, 9, 11];
 var PENT  = [0, 2, 4, 7, 9];
 
-// The real song — Coupled Dynamics, as five aligned stems. Measured from
-// the audio itself: 124 BPM, B-flat major, all stems sample-locked at 0.
+// The real song — Coupled Dynamics, as aligned stems. Measured from the
+// audio itself: 124 BPM, B-flat major, all stems sample-locked at 0.
 // Stem mode doesn't imitate a band — it conducts the actual record.
-var STEM_BASE = '/v5/stems/coupled_dynamics/';
-var STEM_LIST = ['bass', 'drums', 'synth', 'vocals', 'other'];
-var STEM_BPM = 124;
-var STEM_ROOT = 58;                   // Bb3 — melody range sits where D major's did
+// DATA-DRIVEN: to add a stem to this song, drop the mp3 in `base` and add
+// one line to `stems` (name: gain per tier 0-3). To add a whole new song,
+// this object is everything the engine needs.
+var SONG = {
+  base: '/v5/stems/coupled_dynamics/',
+  bpm: 124,
+  root: 58,                           // Bb3 — melody range sits where D major's did
+  stems: {
+    bass:   [0.6,  0.9,  1.0, 1.0],
+    drums:  [0.0,  0.45, 0.9, 1.0],
+    synth:  [0.9,  1.0,  1.0, 1.0],
+    other:  [0.75, 0.9,  1.0, 1.0],
+    vocals: [0.0,  0.0,  0.5, 1.0]   // the voice is the summit — it must be earned
+  }
+};
+var STEM_LIST = Object.keys(SONG.stems);
 var stemMode = false;
 
-function keyRoot(){ return stemMode ? STEM_ROOT : KEY_ROOT; }
+// The Lift — the whole record transposes together in whole steps (varispeed,
+// a hand on the turntable). Because EVERY stem moves at once, any step keeps
+// every harmony intact — beauty by construction. The harp retunes to follow.
+var stemShift = 0, stemRate = 1, stemRateTgt = 1;
+
+function keyRoot(){ return stemMode ? SONG.root + stemShift : KEY_ROOT; }
 
 function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
 
@@ -168,33 +185,42 @@ function out(node, dry, send, pan){
 
 // ── VOICES ─────────────────────────────────────────────────────────
 
-// Harp pluck — the sparkle fingers
+// Harp pluck — the sparkle fingers. Velocity opens the filter (soft touch
+// = felt, hard touch = bright), and a tiny octave ping gives the string
+// its glint without any extra synth cheese.
 function pluck(t, midi, vel, pan){
   var f = mtof(midi);
   var o = actx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
   var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1;
-  lp.frequency.setValueAtTime(f * 5, t);
-  lp.frequency.exponentialRampToValueAtTime(f * 1.4, t + 0.4);
+  lp.frequency.setValueAtTime(f * (3.2 + 2.6 * vel), t);
+  lp.frequency.exponentialRampToValueAtTime(f * 1.3, t + 0.3);
   var g = actx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+  g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
   o.connect(lp); lp.connect(g); out(g, 0.8, 0.4, pan);
-  o.start(t); o.stop(t + 1.1);
+  o.start(t); o.stop(t + 0.95);
+  var p2 = actx.createOscillator(); p2.type = 'sine'; p2.frequency.value = f * 2;
+  var g2 = actx.createGain();
+  g2.gain.setValueAtTime(0.045 * vel, t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  p2.connect(g2); out(g2, 0.6, 0.5, pan);
+  p2.start(t); p2.stop(t + 0.2);
 }
 
-// Music-box bell — the melody voice (2-op FM)
+// Music-box bell — the melody voice (2-op FM). The modulation index is the
+// difference between a music box and a fire alarm: keep it low and brief.
 function bell(t, midi, vel, pan){
   var f = mtof(midi);
   var car = actx.createOscillator(); car.type = 'sine'; car.frequency.value = f;
   var mod = actx.createOscillator(); mod.type = 'sine'; mod.frequency.value = f * 3.01;
   var mg = actx.createGain();
-  mg.gain.setValueAtTime(f * 2.4 * vel, t);
-  mg.gain.exponentialRampToValueAtTime(f * 0.01, t + 0.5);
+  mg.gain.setValueAtTime(f * (0.7 + 0.5 * vel), t);
+  mg.gain.exponentialRampToValueAtTime(f * 0.01, t + 0.3);
   mod.connect(mg); mg.connect(car.frequency);
   var g = actx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.28 * vel, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.24 * vel, t + 0.005);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
   car.connect(g); out(g, 0.7, 0.5, pan);
   car.start(t); mod.start(t);
@@ -225,6 +251,7 @@ function padChord(t, brightness){
     n.g.gain.setValueAtTime(n.g.gain.value || 0.0001, t);
     n.g.gain.exponentialRampToValueAtTime(0.0001, t + 2.0);
     n.o1.stop(t + 2.2); n.o2.stop(t + 2.2);
+    if(n.o3){ n.o3.stop(t + 2.2); } if(n.lfo){ n.lfo.stop(t + 2.2); }
   }
   padNodes = [];
   var lvl = 0.05;
@@ -233,17 +260,26 @@ function padChord(t, brightness){
     var f = mtof(midi);
     var o1 = actx.createOscillator(); o1.type = 'sawtooth';
     var o2 = actx.createOscillator(); o2.type = 'sawtooth';
-    o1.frequency.value = f; o2.frequency.value = f;
-    o1.detune.value = -6; o2.detune.value = 6;
+    var o3 = actx.createOscillator(); o3.type = 'triangle';   // sub-octave body
+    o1.frequency.value = f; o2.frequency.value = f; o3.frequency.value = f / 2;
+    o1.detune.value = -5; o2.detune.value = 5;
+    // static detune sounds like a preset — a slow drift makes it breathe
+    var lfo = actx.createOscillator(); lfo.type = 'sine';
+    lfo.frequency.value = 0.09 + k * 0.03;
+    var la = actx.createGain(); la.gain.value = 3.2;
+    var lb = actx.createGain(); lb.gain.value = -3.2;
+    lfo.connect(la); la.connect(o1.detune);
+    lfo.connect(lb); lb.connect(o2.detune);
+    var g3 = actx.createGain(); g3.gain.value = 0.35;
     var lp = actx.createBiquadFilter(); lp.type = 'lowpass';
     lp.frequency.value = 300 + brightness * 1400; lp.Q.value = 0.5;
     var g = actx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(lvl, t + 1.4);
-    o1.connect(lp); o2.connect(lp); lp.connect(g);
+    g.gain.exponentialRampToValueAtTime(lvl, t + 2.0);
+    o1.connect(lp); o2.connect(lp); o3.connect(g3); g3.connect(lp); lp.connect(g);
     out(g, 0.75, 0.45, (k - 1) * 0.3);
-    o1.start(t); o2.start(t);
-    padNodes.push({ o1: o1, o2: o2, g: g, lp: lp });
+    o1.start(t); o2.start(t); o3.start(t); lfo.start(t);
+    padNodes.push({ o1: o1, o2: o2, o3: o3, lfo: lfo, g: g, lp: lp });
   }
 }
 
@@ -470,24 +506,16 @@ function askMotionPermission(){
 var stemEls = null, stemNodes = null, stemBus = null, stemLP = null;
 var stemsReady = false, stemFail = false, lastStemSync = 0, lastStemTier = -1;
 
-// who plays at each tier (gain per tier 0-3), tuned to the song's anatomy:
-// synth is the intro's heart, vocals carry the middle, drums are the reward.
-var STEM_TIER = {
-  bass:   [0.55, 0.9, 1.0, 1.0],
-  drums:  [0.0,  0.3, 0.8, 1.0],
-  synth:  [0.9,  1.0, 1.0, 1.0],
-  vocals: [0.25, 0.65, 1.0, 1.0],
-  other:  [0.8,  0.9, 1.0, 1.0]
-};
-
 function loadStems(){
   if(stemEls){ return; }
   stemEls = {};
   var left = STEM_LIST.length;
   STEM_LIST.forEach(function(n){
     var a = new Audio();
-    a.src = STEM_BASE + n + '.mp3';
+    a.src = SONG.base + n + '.mp3';
     a.preload = 'auto'; a.loop = true;
+    a.preservesPitch = false;         // varispeed: pitch rides the rate, like tape
+    a.webkitPreservesPitch = false;
     var armed = false;
     a.addEventListener('canplaythrough', function(){
       if(armed){ return; }
@@ -525,8 +553,51 @@ function stemMixForTier(tau){
   if(!stemNodes){ return; }
   var t = actx.currentTime;
   STEM_LIST.forEach(function(n){
-    stemNodes[n].gain.setTargetAtTime(stemMode ? STEM_TIER[n][tier] : 0, t, tau || 0.5);
+    if(stemMode && n === 'vocals'){ return; }   // the voice builds on its own clock below
+    stemNodes[n].gain.setTargetAtTime(stemMode ? SONG.stems[n][tier] : 0, t, tau || 0.5);
   });
+}
+
+// "The lyrics come in a bit too soon — let it build more." The voice needs
+// BOTH: real energy (tier) and real time in the song. Even a hard early
+// spike can't summon it; it arrives like a singer walking to the mic.
+var stemModeAt = 0, lastVocalG = -1;
+function stemVocalUpdate(){
+  if(!stemNodes || !stemNodes.vocals){ return; }
+  var build = Math.min(1, (actx.currentTime - stemModeAt) / 28);
+  var g = SONG.stems.vocals[tier] * build;
+  if(Math.abs(g - lastVocalG) < 0.02){ return; }
+  lastVocalG = g;
+  stemNodes.vocals.gain.setTargetAtTime(g, actx.currentTime, 0.9);
+}
+
+// ── THE LIFT — hold the wand tipped up and the whole record steps up a
+// whole tone (tipped down = step down). All stems move together, so every
+// harmony survives any step: beauty by construction. Earned, not given —
+// it arms only after the song has had time to build.
+var liftHold = 0, liftDir = 0, liftAt = -9;
+function stepShift(dir){
+  stemShift = Math.max(-4, Math.min(4, stemShift + dir));
+  stemRateTgt = Math.pow(2, stemShift / 12);
+  SP16 = 60 / (SONG.bpm * stemRateTgt) / 4;   // the grid rides the tape speed
+  burst();
+  noteGlow(actx.currentTime, 1.2);
+}
+function liftStep(dt){
+  if(!stemMode){ liftHold = 0; return; }
+  // glide the tape speed toward its target — never a snap
+  if(Math.abs(stemRate - stemRateTgt) > 0.0004){
+    stemRate += (stemRateTgt - stemRate) * Math.min(1, dt * 5);
+    STEM_LIST.forEach(function(n){ stemEls[n].playbackRate = stemRate; });
+  }
+  if(actx.currentTime - stemModeAt < 30){ liftHold = 0; return; }  // not off the rip
+  var tip = tiltY < -0.55 ? 1 : (tiltY > 0.55 ? -1 : 0);
+  if(tip === 0 || tip !== liftDir){ liftDir = tip; liftHold = 0; return; }
+  liftHold += dt;
+  if(liftHold > 1.1 && actx.currentTime - liftAt > 2.5){
+    liftAt = actx.currentTime; liftHold = 0;
+    stepShift(tip * 2);
+  }
 }
 
 function padSilence(t){
@@ -536,6 +607,7 @@ function padSilence(t){
     n.g.gain.setValueAtTime(n.g.gain.value || 0.0001, t);
     n.g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
     n.o1.stop(t + 1.4); n.o2.stop(t + 1.4);
+    if(n.o3){ n.o3.stop(t + 1.4); } if(n.lfo){ n.lfo.stop(t + 1.4); }
   }
   padNodes = [];
 }
@@ -544,18 +616,21 @@ var stemPauseTimer = null;
 function setStemMode(on){
   if(on && !stemsReady){ return; }
   stemMode = on;
-  SP16 = 60 / (on ? STEM_BPM : BPM) / 4;
+  stemShift = 0; stemRate = 1; stemRateTgt = 1; liftHold = 0;
+  SP16 = 60 / (on ? SONG.bpm : BPM) / 4;
   var t = actx.currentTime;
   if(stemPauseTimer){ clearTimeout(stemPauseTimer); stemPauseTimer = null; }
   if(on){
     if(!stemNodes){ buildStemGraph(); }
     chordDeg = 0; chordTones = chordSemis(0);   // strikes ride the song's I chord + pentatonic
     padSilence(t);
-    var t0 = stemEls.bass.currentTime || 0;
+    var t0 = stemEls[STEM_LIST[0]].currentTime || 0;
     STEM_LIST.forEach(function(n){
       stemEls[n].currentTime = t0;
+      stemEls[n].playbackRate = 1;
       stemEls[n].play().catch(function(){});
     });
+    stemModeAt = t; lastVocalG = -1;
     lastStemTier = -1;
     stemMixForTier();                  // ramps up from 0 — no click on entry
   } else {
@@ -594,7 +669,7 @@ function stemSyncCheck(){
   if(!stemMode || !stemEls){ return; }
   if(actx.currentTime - lastStemSync < 4){ return; }
   lastStemSync = actx.currentTime;
-  var m = stemEls.bass.currentTime;
+  var m = stemEls[STEM_LIST[0]].currentTime;
   for(var i = 1; i < STEM_LIST.length; i++){
     var el = stemEls[STEM_LIST[i]];
     if(Math.abs(el.currentTime - m) > 0.06){ el.currentTime = m; }
@@ -683,7 +758,7 @@ function scheduleStep(s, t){
   if(tier >= 1 && inBar % arpEvery === 0){
     var idx = Math.floor(inBar / arpEvery);
     var semi = chordTones[idx % 3] + 12 * Math.floor(idx / 3 % 2);
-    pluck(t, keyRoot() + 12 + semi + reg, 0.4 + energy * 0.4, (idx % 3 - 1) * 0.35);
+    pluck(t, keyRoot() + 12 + semi + reg, (stemMode ? 0.3 : 0.4) + energy * 0.35, (idx % 3 - 1) * 0.35);
     noteGlow(t, 0.4);
   }
 
@@ -726,7 +801,7 @@ window.addEventListener('resize', resize); resize();
 function chordHue(){
   if(stemMode && stemEls){
     // in the real song, color rides the record — a slow sunrise over 161s
-    return (200 + (stemEls.bass.currentTime / 161) * 140) % 360;
+    return (200 + (stemEls[STEM_LIST[0]].currentTime / 161) * 140 + stemShift * 9 + 360) % 360;
   }
   return (200 + chordTones[0] * 22) % 360;
 }
@@ -763,6 +838,8 @@ function draw(now){
     padBrightness(0.3 + energy * 0.6);
     if(stemMode){
       if(tier !== lastStemTier){ lastStemTier = tier; stemMixForTier(); }
+      stemVocalUpdate();
+      liftStep(dt);
       stemFilter(energy);
       stemSyncCheck();
     }
@@ -871,7 +948,7 @@ document.addEventListener('visibilitychange', function(){
     // together, or the harp returns to a silent stage
     if(stemMode && stemEls){
       lastStemSync = 0;
-      var t0 = stemEls.bass.currentTime || 0;
+      var t0 = stemEls[STEM_LIST[0]].currentTime || 0;
       STEM_LIST.forEach(function(n){
         stemEls[n].currentTime = t0;
         stemEls[n].play().catch(function(){});
