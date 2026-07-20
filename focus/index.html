@@ -53,7 +53,15 @@ input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:4px;bord
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;
   background:var(--ink);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5);}
 input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:var(--ink);cursor:pointer;}
-.note{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);
+.tog{margin:20px 2px 0;display:inline-block;font-size:.74em;letter-spacing:.14em;text-transform:uppercase;
+  padding:10px 22px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--dim);
+  cursor:pointer;transition:all .3s;}
+.tog:hover{border-color:var(--dim);color:var(--ink);}
+.tog.on{border-color:#c98a5a;color:#f0c48a;background:rgba(201,138,90,.10);box-shadow:0 0 22px rgba(201,138,90,.16);}
+.tog-cap{margin:9px 2px 0;font-size:.7em;line-height:1.6;color:var(--faint);max-width:440px;}
+body.intense{background-image:radial-gradient(130% 70% at 50% -10%,rgba(201,138,90,.10),transparent 62%);}
+body.intense .master{border-color:#c98a5a;}
+.note{margin-top:28px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);
   font-size:.76em;line-height:1.8;}
 .note b{color:var(--dim);font-weight:500;}
 </style>
@@ -102,10 +110,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-ra
     </div>
   </div>
 
+  <button class="tog" id="intense" aria-pressed="false">Intense</button>
+  <div class="tog-cap">Makes whatever's playing fuller and louder — sound you can feel. A limiter keeps it out of harm; keep your own volume comfortable.</div>
+
   <p class="note">
-    <b>What this is:</b> just sound. Gentle ambient tones, the kind you leave on in the background while you work.
-    It doesn't do anything to your brain and it doesn't claim to — some people simply find a steady tone easier to
-    focus against than silence. Keep the volume comfortable. If it ever feels like too much, it is — turn it down or off.
+    <b>What this is:</b> just sound. Ambient tones, the kind you leave on in the background while you work — or,
+    on Intense, something with more body you can sit inside. It doesn't do anything to your brain and it doesn't
+    claim to; people simply find sound easier to focus or settle against than silence. Loud, full sound is just
+    music. Keep the volume comfortable, and if it's ever too much, it is — turn it down or off.
   </p>
 </div>
 
@@ -114,19 +126,30 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:none;border-ra
 'use strict';
 
 var actx=null, master=null, running=false;
+var intensity=null, bodyShelf=null, bus=null;   // signal chain (built once)
+var intense=false;
 var layers=[null,null,null];            // each: {gain, stop()}
 var layerOn=[false,false,false];
 var LC=['#7fb4c9','#8ec9a8','#c9b57f'];
 
-// ── gentle, comfortable levels on purpose. Warm and quiet, never pressure. ──
+// ── Signal chain: bus → bodyShelf → intensity → master → limiter → out.
+// Default is gentle. The Intense toggle pushes `intensity` up and adds low-end
+// body — fuller, louder, felt. The limiter is a real brick wall so even at full
+// intensity the signal can't spike into clipping / hearing-damage territory;
+// that ceiling is the one hard guardrail, kept quiet, on by design. ──
 function ensureCtx(){
   if(actx) return;
   actx=new (window.AudioContext||window.webkitAudioContext)();
-  master=actx.createGain();
-  master.gain.value=0;
-  var comp=actx.createDynamicsCompressor();
-  comp.threshold.value=-18; comp.ratio.value=4; comp.attack.value=0.02; comp.release.value=0.4;
-  master.connect(comp); comp.connect(actx.destination);
+  master=actx.createGain(); master.gain.value=0;
+  var limiter=actx.createDynamicsCompressor();
+  limiter.threshold.value=-4; limiter.knee.value=0; limiter.ratio.value=20;
+  limiter.attack.value=0.003; limiter.release.value=0.25;
+  intensity=actx.createGain(); intensity.gain.value=intense?2.4:1;
+  bodyShelf=actx.createBiquadFilter(); bodyShelf.type='lowshelf';
+  bodyShelf.frequency.value=140; bodyShelf.gain.value=intense?6:0;
+  bus=actx.createGain(); bus.gain.value=1;
+  bus.connect(bodyShelf); bodyShelf.connect(intensity);
+  intensity.connect(master); master.connect(limiter); limiter.connect(actx.destination);
 }
 
 function osc(freq,gain,pan,type){
@@ -139,7 +162,6 @@ function osc(freq,gain,pan,type){
   g.gain.setTargetAtTime(gain, actx.currentTime, 2.2);   // slow, gentle fade-in
   return {o:o,g:g};
 }
-var bus=null;
 
 // slow amplitude drift so a layer breathes instead of sitting dead-flat
 function drift(node, base, depth, rate){
@@ -212,11 +234,23 @@ function setLayer(n,on){
 function startMaster(){
   ensureCtx();
   if(actx.state==='suspended') actx.resume();
-  bus=bus||(function(){ var b=actx.createGain(); b.gain.value=1; b.connect(master); return b; })();
   running=true;
   document.body.classList.add('playing');
   document.getElementById('master').textContent='❚❚';
   master.gain.setTargetAtTime(volVal(), actx.currentTime, 1.5);
+}
+
+function setIntense(on){
+  intense=on;
+  ensureCtx();
+  var btn=document.getElementById('intense');
+  btn.classList.toggle('on',on);
+  btn.textContent=on?'Intense — on':'Intense';
+  document.body.classList.toggle('intense',on);
+  // fuller and louder, up to the limiter's ceiling — the sound gets teeth,
+  // the guardrail keeps it out of harm
+  intensity.gain.setTargetAtTime(on?2.4:1, actx.currentTime, 0.8);
+  bodyShelf.gain.setTargetAtTime(on?6:0, actx.currentTime, 0.8);
 }
 function stopMaster(){
   running=false;
@@ -245,6 +279,7 @@ document.getElementById('master').addEventListener('click',function(){
     else startMaster();
   }
 });
+document.getElementById('intense').addEventListener('click',function(){ setIntense(!intense); });
 document.getElementById('vol').addEventListener('input',function(){
   if(master && running) master.gain.setTargetAtTime(volVal(), actx.currentTime, 0.15);
 });
