@@ -58,6 +58,7 @@ body:not(.paused) .play{box-shadow:0 6px 24px rgba(0,0,0,.4),0 0 44px rgba(243,2
 .now-pick select:hover{border-color:rgba(217,164,65,0.5);color:var(--ember);}
 .skip{flex-shrink:0;background:none;border:1px solid var(--hair);color:var(--brass);border-radius:50%;width:40px;height:40px;cursor:pointer;font-size:0.9em;transition:all .3s;}
 .skip:hover{border-color:rgba(217,164,65,0.5);color:var(--ember);background:rgba(217,164,65,.06);}
+.skip.on{border-color:var(--brass);color:#1a0f06;background:radial-gradient(circle at 38% 32%,#f3ce88,#d9a441 60%,#c88a34);box-shadow:0 0 18px rgba(243,206,136,0.45);}
 .bar{height:4px;background:rgba(217,164,65,0.1);border-radius:3px;margin:0 2px 30px;overflow:hidden;cursor:pointer;}
 .bar-fill{height:100%;width:0;background:linear-gradient(90deg,#8b4513,#d9a441,#f3ce88);border-radius:3px;box-shadow:0 0 10px rgba(243,206,136,.4);}
 /* ── playlists: a row of sets. each one just mutes everything it doesn't name; the rest plays in album order ── */
@@ -191,6 +192,7 @@ body.paused .track-eq span{animation-play-state:paused;}
     <div class="now-hand" id="now-hand"></div>
     <div class="now-pick" id="now-pick"></div>
   </div>
+  <button class="skip" id="repeat" aria-label="repeat one" title="repeat this song">↻</button>
   <button class="skip" id="next" aria-label="next">⏭</button>
 </div>
 <div class="bar" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
@@ -252,7 +254,8 @@ body.paused .track-eq span{animation-play-state:paused;}
   // SECURITY: the catcher MUST re-validate everything — type, size, duration, re-encode, CAPTCHA,
   // per-IP rate limit — and must never serve uploads as executable. The client checks below are UX only.
   var UPLOAD_URL='https://radio.begump.com/upload';
-  var a=document.getElementById('audio'), playBtn=document.getElementById('play'), nextBtn=document.getElementById('next');
+  var a=document.getElementById('audio'), playBtn=document.getElementById('play'), nextBtn=document.getElementById('next'), repeatBtn=document.getElementById('repeat');
+  var repeatOne=false;   // when on, a finished song replays itself instead of advancing
   var nowLabel=document.getElementById('now-label'), nowTitle=document.getElementById('now-title'), nowSub=document.getElementById('now-sub'), nowFrom=document.getElementById('now-from'), nowHand=document.getElementById('now-hand'), nowPick=document.getElementById('now-pick');
   var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), pathlineEl=document.getElementById('pathline'), colsEl=document.getElementById('cols'), plistsEl=document.getElementById('plists'), promptEl=document.getElementById('slot-prompt'), B=document.body;
   var idx=0, triedFb=false, lastSrc='';
@@ -612,7 +615,15 @@ body.paused .track-eq span{animation-play-state:paused;}
     var j=nextPlayable(idx); if(j>=0) load(j, true); else { a.pause(); paused(); }
   } // roll to next in active pool — beats loop within beats, album loops within album
   nextBtn.addEventListener('click', advance);
-  a.addEventListener('ended', advance);
+  repeatBtn.addEventListener('click', function(){
+    repeatOne = !repeatOne;
+    repeatBtn.classList.toggle('on', repeatOne);
+    repeatBtn.setAttribute('aria-pressed', repeatOne);
+  });
+  a.addEventListener('ended', function(){
+    if (repeatOne && a.src){ a.currentTime = 0; a.play(); return; }   // loop this one, skip advancing
+    advance();
+  });
   a.addEventListener('playing', function(){ if (want) playing(); });                 // fires when audio actually starts (after any buffering)
   a.addEventListener('waiting', function(){ if (want) nowLabel.textContent = '— buffering —'; });
   a.addEventListener('error', function(){
