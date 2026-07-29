@@ -93,6 +93,14 @@ body.intense .master{border-color:#c98a5a;}
 .builder .bar{margin-top:12px;margin-bottom:15px;}
 .save-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .save-msg{font-size:.68em;color:var(--b);letter-spacing:.04em;}
+.builder-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+#move-tog.on{border-color:#c98a5a;color:#f0c48a;background:rgba(201,138,90,.12);box-shadow:0 0 18px rgba(201,138,90,.16);}
+.move-cap{font-size:.68em;color:var(--faint);line-height:1.65;margin-top:9px;}
+.builder.moving .voice input[type=range],
+.builder.moving .waves button,
+.builder.moving .voice-head .rm,
+.builder.moving #add-voice{pointer-events:none;opacity:.7;}
+.builder.moving .voice{border-color:rgba(201,138,90,.28);}
 </style>
 </head>
 <body>
@@ -153,7 +161,8 @@ body.intense .master{border-color:#c98a5a;}
         <button data-preset="deep">Deep</button>
       </div>
       <div id="voices"></div>
-      <div class="builder-actions"><button id="add-voice">+ add voice</button></div>
+      <div class="builder-actions"><button id="add-voice">+ add voice</button><button id="move-tog">Movement</button></div>
+      <div class="move-cap">Movement sets the profile gently drifting around your settings — tones lean to nearby intervals and return, pulses cross against each other, depth breathes. Dial in your sound first, then turn it on; turn it off to edit again.</div>
       <div class="bar">
         <button class="master" id="cmaster" aria-label="play or pause your profile">▶</button>
         <div class="vol">
@@ -400,15 +409,16 @@ function fmt(k,val){
 function rateOf(v){ return v.pulse>0 ? v.pulse : (v.sway>0 ? v.sway : 0); }
 
 // ── audio: one voice ──
-function applyVoice(a,v,initial){
-  var t=actx.currentTime, tc=initial?0.01:0.06, bin=v.sway>0;
+function applyVoice(a,v,tc,levelTc){
+  tc=tc||0.06; levelTc=(levelTc==null?0.2:levelTc);
+  var t=actx.currentTime, bin=v.sway>0;
   a.o1.type=a.o2.type=v.wave;
   a.o1.frequency.setTargetAtTime(v.tone, t, tc);
   a.o2.frequency.setTargetAtTime(v.tone+(bin?v.sway:0), t, tc);
   a.og1.gain.setTargetAtTime(1, t, tc);
   a.og2.gain.setTargetAtTime(bin?1:0, t, tc);
   if(a.p1){ a.p1.pan.setTargetAtTime(bin?-1:0,t,tc); a.p2.pan.setTargetAtTime(bin?1:0,t,tc); }
-  a.vg.gain.setTargetAtTime((v.level/100)*0.12, t, initial?2.4:0.2);   // slow fade-in on first build
+  a.vg.gain.setTargetAtTime((v.level/100)*0.12, t, levelTc);
   var active=v.pulse>0 && v.depth>0, d=active?v.depth/100:0;
   a.tg.gain.setTargetAtTime(1-d/2, t, tc);   // tremolo centre
   a.lg.gain.setTargetAtTime(d/2, t, tc);     // tremolo amount
@@ -429,11 +439,12 @@ function buildVoice(v){
   lfo.connect(lg); lg.connect(tg.gain);
   o1.start(); o2.start(); lfo.start();
   var a={o1:o1,o2:o2,og1:og1,og2:og2,p1:p1,p2:p2,vg:vg,tg:tg,lfo:lfo,lg:lg,
-    update:function(vv){ applyVoice(a,vv,false); },
+    update:function(vv){ applyVoice(a,vv,0.06,0.2); },
+    glide:function(vv,sec){ applyVoice(a,vv,Math.max(0.05,sec*0.5),Math.max(0.05,sec*0.6)); },
     stop:function(){ var n=actx.currentTime; vg.gain.setTargetAtTime(0,n,0.7);
       setTimeout(function(){ [o1,o2,lfo].forEach(function(x){try{x.stop();}catch(e){}}); },1100); }
   };
-  applyVoice(a,v,true);
+  applyVoice(a,v,0.01,2.4);
   return a;
 }
 function cvolVal(){ return Math.pow(document.getElementById('cvol').value/100,1.6)*0.9; }
@@ -481,6 +492,16 @@ function renderVoices(){
       KNOBS.map(function(def){ return knobRow(i,def,v[def.k]); }).join('')+
     '</div>';
   }).join('');
+  // cache element refs so Movement can animate the sliders/readouts
+  movement.sliderRefs=custom.voices.map(function(_,i){
+    var card=voicesEl.querySelector('.voice[data-i="'+i+'"]');
+    var refs={waves:card.querySelector('.waves'), breath:card.querySelector('.breath[data-i="'+i+'"]')};
+    ['tone','sway','pulse','depth','level'].forEach(function(k){
+      var inp=card.querySelector('input[data-k="'+k+'"]');
+      refs[k]={inp:inp, val:inp.parentNode.querySelector('.val')};
+    });
+    return refs;
+  });
   updateBreaths();
 }
 voicesEl.addEventListener('input',function(e){
@@ -541,7 +562,7 @@ document.getElementById('cvol').addEventListener('input',function(){
 });
 document.getElementById('add-voice').addEventListener('click',addVoice);
 document.querySelectorAll('.presets [data-preset]').forEach(function(btn){
-  btn.addEventListener('click',function(){ setVoices(PRESETS[btn.dataset.preset]); });
+  btn.addEventListener('click',function(){ setMovement(false); setVoices(PRESETS[btn.dataset.preset]); });
 });
 document.getElementById('save-profile').addEventListener('click',function(){
   var s=serialize(); localStorage.setItem('focusProfile',s); location.hash='p='+s; msg('saved — it’ll load next time');
@@ -552,8 +573,82 @@ document.getElementById('copy-link').addEventListener('click',function(){
   else msg(u);
 });
 document.getElementById('reset-profile').addEventListener('click',function(){
-  localStorage.removeItem('focusProfile'); location.hash=''; setVoices([defaultVoice()]); msg('reset');
+  setMovement(false); localStorage.removeItem('focusProfile'); location.hash=''; setVoices([defaultVoice()]); msg('reset');
 });
+
+// ── Movement: the profile takes a bounded walk around the user's settings ──
+// Roots = custom.voices (locked while moving). Audio glides via setTargetAtTime
+// over each step; the sliders/readouts ease toward the same targets on rAF.
+var movement={on:false, target:[], live:[], timer:null, raf:null, stepSec:5, tempo:3, sliderRefs:[]};
+function clamp(x,lo,hi){ return x<lo?lo:x>hi?hi:x; }
+function rand(a,b){ return a+Math.random()*(b-a); }
+function pick(arr){ return arr[(Math.random()*arr.length)|0]; }
+var JI=[1,1,1,1,1.5,1.3333,0.6667,0.75,2,0.5,1.25,1.2];   // consonant ratios, weighted toward home
+var POLY=[1,1,1.5,0.6667,0.5,2,0.75,1.3333];              // cross-rhythm ratios off the shared tempo
+function avgRootPulse(){ var s=0,n=0; custom.voices.forEach(function(v){ if(v.pulse>0){s+=v.pulse;n++;} }); return n?s/n:0; }
+function roveVoice(i){
+  var r=custom.voices[i], t={};
+  t.tone=clamp(r.tone*pick(JI),30,500);
+  t.wave=Math.random()<0.15?pick([r.wave,'sine','triangle']):r.wave;
+  if(r.sway<0.5){ t.sway=Math.random()<0.2?rand(0,1):0; }
+  else { t.sway=clamp(rand(Math.max(0.5,r.sway*0.5),Math.min(14,r.sway*1.6)),0,40); }
+  if(r.pulse<=0){ t.pulse=Math.random()<0.15?rand(0.3,2):0; }
+  else { t.pulse=clamp(movement.tempo*pick(POLY),0.1,16); }
+  t.depth=clamp((r.depth||60)+rand(-25,25),20,95);
+  t.level=clamp(r.level+rand(-15,12),15,100);
+  return t;
+}
+function movementStep(){
+  var base=avgRootPulse();
+  movement.tempo=clamp((movement.tempo||base||3)+rand(-0.8,0.8), Math.max(1,(base||2)*0.5), Math.min(9,(base||4)*1.8));
+  movement.target=custom.voices.map(function(_,i){ return roveVoice(i); });
+  if(custom.playing) movement.target.forEach(function(tv,i){ if(built[i]) built[i].glide(tv,movement.stepSec); });
+}
+function scheduleStep(){
+  movement.stepSec=rand(4,7);
+  movementStep();
+  movement.timer=setTimeout(scheduleStep, movement.stepSec*1000);
+}
+function paintVoiceLive(i,lv){
+  var refs=movement.sliderRefs[i]; if(!refs) return;
+  ['tone','sway','pulse','depth','level'].forEach(function(k){
+    if(!refs[k]) return; refs[k].inp.value=lv[k]; refs[k].val.textContent=fmt(k,lv[k]);
+  });
+  if(refs.waves)[].forEach.call(refs.waves.children,function(b){ b.classList.toggle('on',b.dataset.w===lv.wave); });
+  if(refs.breath){ var r=lv.pulse>0?lv.pulse:(lv.sway>0?lv.sway:0);
+    refs.breath.style.setProperty('--pd',(r>0?1/r:2)+'s'); refs.breath.classList.toggle('live',custom.playing&&r>0); }
+}
+function movementFrame(){
+  if(!movement.on) return;
+  movement.raf=requestAnimationFrame(movementFrame);
+  custom.voices.forEach(function(_,i){
+    var tv=movement.target[i]; if(!tv) return;
+    if(!movement.live[i]) movement.live[i]=JSON.parse(JSON.stringify(custom.voices[i]));
+    var lv=movement.live[i];
+    ['tone','sway','pulse','depth','level'].forEach(function(k){ lv[k]+=((tv[k]||0)-lv[k])*0.06; });
+    lv.wave=tv.wave;
+    paintVoiceLive(i,lv);
+  });
+}
+function setMovement(on){
+  if(movement.on===on) return;
+  movement.on=on;
+  var btn=document.getElementById('move-tog');
+  btn.classList.toggle('on',on); btn.setAttribute('aria-pressed',on);
+  document.getElementById('builder').classList.toggle('moving',on);
+  if(on){
+    movement.live=custom.voices.map(function(v){ return JSON.parse(JSON.stringify(v)); });
+    movement.tempo=avgRootPulse()||3;
+    scheduleStep();
+    movement.raf=requestAnimationFrame(movementFrame);
+  } else {
+    if(movement.timer){ clearTimeout(movement.timer); movement.timer=null; }
+    if(movement.raf){ cancelAnimationFrame(movement.raf); movement.raf=null; }
+    if(custom.playing) custom.voices.forEach(function(v,i){ if(built[i]) built[i].glide(v,1.4); });
+    renderVoices();   // snap sliders/readouts back to the root profile
+  }
+}
+document.getElementById('move-tog').addEventListener('click',function(){ setMovement(!movement.on); });
 
 loadProfile(); renderVoices();
 })();
