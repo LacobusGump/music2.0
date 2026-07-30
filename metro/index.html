@@ -192,6 +192,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:none;border-ra
         <label style="font-size:.72em;color:var(--dim);">Play the figures out loud</label>
         <div class="switch on" id="voiceSw" role="switch" aria-checked="true"></div>
       </div>
+      <div class="tog-head" style="margin-top:4px;">
+        <label style="font-size:.72em;color:var(--dim);">Different sound for R &amp; L <span style="opacity:.55;">— off is flatter &amp; smoother</span></label>
+        <div class="switch" id="handSw" role="switch" aria-checked="false"></div>
+      </div>
       <div class="grid-help" style="margin:8px 0 0;">Off = just the count, so you play the figures yourself. Accented notes are shown <b>UPPERCASE</b>; the sticking is a suggestion — flip it if you lead with your left.</div>
     </div>
   </div>
@@ -281,7 +285,7 @@ var accel={on:false, rate:1.0, target:200};
 var decel={on:false, rate:1.0, floor:60};
 var swing={on:false, ratio:0.667, alt:false, straightBars:2, swungBars:2};
 var poly={n:0};                 // 0 = off, else pulses across the bar
-var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true,
+var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true, hands:false,
             bar:0, barTime:0};
 
 // ── figures for the bounce trainer ──
@@ -299,16 +303,41 @@ var FIGURES=[
   {id:'16',name:'16th notes',           sub:4, single:true},
   {id:'6', name:'16th triplets',        sub:6, single:true},
   {id:'32',name:'32nd notes',           sub:8, single:true},
-  {id:'dsr',name:'Double Stroke Roll',  sub:4, base:'Rrll'},
-  {id:'para',name:'Single Paradiddle',  sub:4, base:'RlrrLrll'},
-  {id:'dpara',name:'Double Paradiddle', sub:6, base:'RlrlrrLrlrll'},
-  {id:'tpara',name:'Triple Paradiddle', sub:4, base:'RlrlrlrrLrlrlrll'},
-  {id:'padd',name:'Paradiddle-diddle',  sub:6, base:'Rlrrll'}
+  // rolls
+  {id:'dsr',  name:'Double Stroke Roll',     sub:4, base:'R r l l'},
+  {id:'tsr',  name:'Triple Stroke Roll',     sub:6, base:'R r r L l l'},
+  {id:'mbr',  name:'Multiple Bounce Roll',   sub:4, base:'zR zr zr zr'},
+  // paradiddle family
+  {id:'para', name:'Single Paradiddle',      sub:4, base:'R l r r L r l l'},
+  {id:'dpara',name:'Double Paradiddle',      sub:6, base:'R l r l r r L r l r l l'},
+  {id:'tpara',name:'Triple Paradiddle',      sub:4, base:'R l r l r l r r L r l r l r l l'},
+  {id:'padd', name:'Paradiddle-diddle',      sub:6, base:'R l r r l l'},
+  // flam family (f = grace note on the opposite hand, just before)
+  {id:'flam', name:'Flam',                   sub:2, base:'fR fL'},
+  {id:'ftap', name:'Flam Tap',               sub:2, base:'fR r fL l'},
+  {id:'facc', name:'Flam Accent',            sub:3, base:'fR l r fL r l'},
+  {id:'fpar', name:'Flam Paradiddle',        sub:4, base:'fR l r r fL r l l'},
+  {id:'fpad', name:'Flam Paradiddle-diddle', sub:6, base:'fR l r r l l fL r l l r r'},
+  {id:'swiss',name:'Swiss Army Triplet',     sub:3, base:'fR r l fL l r'},
+  // drag family (d = two grace notes on the opposite hand)
+  {id:'drag', name:'Drag (Ruff)',            sub:2, base:'dR dL'},
+  {id:'dragd',name:'Single Dragadiddle',     sub:4, base:'dR l r r L r l l'}
 ];
 var FIGMAP={};
+// token grammar: R/L accent, r/l unaccented, '-' rest; prefix f=flam(1 grace), d=drag(2 grace), z=buzz
+function parseCells(str){
+  return str.trim().split(/\s+/).map(function(tok){
+    if(tok==='-') return {s:'-',a:false,g:0,z:0};
+    var g=0,z=0,c=tok;
+    while(c.length>1 && (c[0]==='f'||c[0]==='d'||c[0]==='z')){
+      if(c[0]==='f') g=1; else if(c[0]==='d') g=2; else z=1;
+      c=c.slice(1);
+    }
+    return {s:c.toUpperCase(), a:(c===c.toUpperCase()), g:g, z:z};
+  });
+}
 FIGURES.forEach(function(f){
-  if(f.base){ f.baseCells=f.base.replace(/\s/g,'').split('').map(function(ch){
-    return ch==='-'?{s:'-',a:false}:{s:ch.toUpperCase(),a:(ch===ch.toUpperCase())}; }); }
+  if(f.base){ f.baseCells=parseCells(f.base); }
   FIGMAP[f.id]=f;
 });
 
@@ -335,11 +364,13 @@ function ensureAudio(){
 function volFromSlider(){ return Math.pow(document.getElementById('vol').value/100,1.5)*1.1; }
 
 // one click. level: 1 normal, 2 accent. down: is it the beat's downbeat (posInBeat 0)
-function click(time, level, down){
+function click(time, level, down, hand){
   var acc=level===2;
   var g=actx.createGain();
   var peak=(acc?0.95:0.5)*(down&&level===1?1.15:1);   // beat-starts a hair stronger even when normal
-  g.connect(volGain);
+  var dest=volGain;
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  g.connect(dest);
   if(soundType==='beep'){
     var o=actx.createOscillator(); o.type='sine';
     o.frequency.value=acc?1320:(down?990:880);
@@ -371,8 +402,30 @@ function click(time, level, down){
     var s2=actx.createBufferSource(); s2.buffer=noiseBuf;
     var hp2=actx.createBiquadFilter(); hp2.type='highpass'; hp2.frequency.value=2500;
     var gn=actx.createGain(); gn.gain.setValueAtTime(peak*0.35,time); gn.gain.exponentialRampToValueAtTime(0.0001,time+0.012);
-    s2.connect(hp2); hp2.connect(gn); gn.connect(volGain); s2.start(time); s2.stop(time+0.03);
+    s2.connect(hp2); hp2.connect(gn); gn.connect(dest); s2.start(time); s2.stop(time+0.03);
   }
+}
+
+// grace note (flam/drag) — soft, quick, on the opposite hand, just before the main stroke
+function graceClick(time, hand){
+  var g=actx.createGain(), dest=volGain;
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  g.connect(dest);
+  var o=actx.createOscillator(); o.type='triangle'; o.frequency.value=880;
+  g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(0.22,time+0.001);
+  g.gain.exponentialRampToValueAtTime(0.0001,time+0.02);
+  o.connect(g); o.start(time); o.stop(time+0.03);
+}
+// buzz (multiple-bounce) — a short pressed noise burst
+function buzzClick(time, hand){
+  var g=actx.createGain(), dest=volGain;
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  g.connect(dest);
+  var s=actx.createBufferSource(); s.buffer=noiseBuf;
+  var bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=3000; bp.Q.value=0.7;
+  g.gain.setValueAtTime(0.0001,time); g.gain.linearRampToValueAtTime(0.4,time+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001,time+0.09);
+  s.connect(bp); bp.connect(g); s.start(time); s.stop(time+0.1);
 }
 
 // distinct cross-rhythm ping — a clean sine so it sits apart from the main click
@@ -482,7 +535,14 @@ function bounceSchedule(){
     var sticks=buildBarSticks(fig), ftotal=sticks.length;
     for(var j=0;j<ftotal;j++){
       var t2=barStart + j*barDur/ftotal, st=sticks[j];
-      if(bounce.voice && st.s!=='-') click(t2, st.a?2:1, (j%fig.sub)===0);
+      if(bounce.voice && st.s!=='-'){
+        var hnd=bounce.hands?st.s:null;
+        if(st.z){ buzzClick(t2, hnd); }
+        else {
+          if(st.g){ var gh=(st.s==='R'?'L':'R'); for(var gi=0;gi<st.g;gi++) graceClick(t2-(st.g-gi)*0.028, bounce.hands?gh:null); }
+          click(t2, st.a?2:1, (j%fig.sub)===0, hnd);
+        }
+      }
       bounceVisQ.push({time:t2, idx:j});
     }
     bounce.barTime += barDur; bounce.bar++;
@@ -725,16 +785,13 @@ swing.ratio=ratioFromSlider(67); document.getElementById('swingRVal').textConten
 // ── root rhythms (cross-rhythm) ──
 function buildPolyOpts(){
   var el=document.getElementById('polys'); el.innerHTML='';
-  function mk(labelTop,labelBot,n){
-    var b=document.createElement('button'); b.className='opt'+(n===poly.n?' on':'');
-    b.innerHTML=labelTop+(labelBot?'<small>'+labelBot+'</small>':''); b.dataset.n=n;
-    b.onclick=function(){ poly.n=n; [].forEach.call(el.children,function(x){x.classList.toggle('on',+x.dataset.n===poly.n);});
-      buildPolyTrack(); if(playing){ polyVisQ=[]; } };
-    el.appendChild(b);
-  }
-  mk('Off','',0);
-  [2,3,4,5,6,7,8,9].forEach(function(n){ if(n!==beats) mk(n+':'+beats,'over bar',n); });
+  var sel=document.createElement('select'); sel.className='bsel';
+  function opt(label,n){ var o=document.createElement('option'); o.value=n; o.textContent=label; if(n===poly.n) o.selected=true; sel.appendChild(o); }
+  opt('Off',0);
+  for(var n=2;n<=21;n++){ if(n!==beats) opt(n+' : '+beats+'  ·  '+n+' over the bar',n); }
   if(poly.n===beats) poly.n=0;   // keep valid if beats changed onto our value
+  sel.onchange=function(){ poly.n=+this.value; buildPolyTrack(); if(playing){ polyVisQ=[]; } };
+  el.appendChild(sel);
 }
 function buildPolyTrack(){
   var t=document.getElementById('polytrack'), lg=document.getElementById('polylegend');
@@ -787,6 +844,9 @@ var bouncePreview=function(){};
   document.getElementById('barsBDn').onclick=function(){ setBarsB(bounce.barsB-1); };
   document.getElementById('voiceSw').onclick=function(){
     bounce.voice=!bounce.voice; this.classList.toggle('on',bounce.voice); this.setAttribute('aria-checked',bounce.voice);
+  };
+  document.getElementById('handSw').onclick=function(){
+    bounce.hands=!bounce.hands; this.classList.toggle('on',bounce.hands); this.setAttribute('aria-checked',bounce.hands);
   };
 })();
 
