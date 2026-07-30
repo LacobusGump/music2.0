@@ -77,6 +77,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:none;border-ra
 .switch.on::after{transform:translateX(22px);background:var(--ember);}
 .fold{max-height:0;overflow:hidden;transition:max-height .3s ease;}
 .fold.open{max-height:320px;margin-top:12px;}
+#ladderBody.open{max-height:520px;}
 .fold .row{margin-bottom:12px;}
 
 /* accent grid */
@@ -223,6 +224,26 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:none;border-ra
 
   <div class="block">
     <div class="tog-head">
+      <h2 style="margin:0;">Subdivision ladder — climb quarters → 64ths</h2>
+      <div class="switch" id="ladderSw" role="switch" aria-checked="false"></div>
+    </div>
+    <div class="fold" id="ladderBody">
+      <div class="grid-help" style="margin:10px 0 0;">Auto-runs the pulse up through every subdivision — quarter, 8th, triplet, 16th, sextuplet, 32nd, 64th — holding each for a set number of bars. Hit play; the floating bar lets you pause anywhere.</div>
+      <div class="brow" style="margin-top:12px;"><label>Bars each</label>
+        <span class="bars"><button class="stepper sm" id="ladRepDn">−</button><span class="val bv" id="ladRepVal">2</span><button class="stepper sm" id="ladRepUp">+</button><small>bars</small></span></div>
+      <div class="opts" id="ladModeOpts" style="margin-top:10px;">
+        <button class="opt on" data-mode="wrap">Up, then restart<small>qtr → 64th → qtr</small></button>
+        <button class="opt" data-mode="bounce">Up &amp; back down<small>qtr → 64th → qtr</small></button>
+      </div>
+      <div class="bounce-status" style="margin-top:12px;">
+        <span class="bside" id="ladNow" style="min-width:auto;padding:4px 12px;">Quarter</span>
+        <div class="bstat-meta"><div class="bstat-cd" id="ladCd">2 bars each · up ↻ restart</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="tog-head">
       <h2 style="margin:0;">Accelerate — slowly get faster</h2>
       <div class="switch" id="accelSw" role="switch" aria-checked="false"></div>
     </div>
@@ -302,6 +323,7 @@ var swing={on:false, ratio:0.667, alt:false, straightBars:2, swungBars:2};
 var poly={n:0};                 // 0 = off, else pulses across the bar
 var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true, hands:false,
             bar:0, barTime:0};
+var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'wrap'};   // auto-cycle subdivisions
 
 // ── figures for the bounce trainer ──
 // A figure is a stream of notes with sticking + accents. `single` = alternating
@@ -492,6 +514,14 @@ function schedule(){
     if(cellIndex%total===0){
       if(accel.on && bpm<accel.target){ bpm=Math.min(accel.target, bpm+accel.rate); setBpm(bpm,true); }
       else if(decel.on && bpm>decel.floor){ bpm=Math.max(decel.floor, bpm-decel.rate); setBpm(bpm,true); }
+      if(ladder.on){
+        if(++ladder.barsDone>=ladder.repeats){
+          ladder.barsDone=0;
+          if(ladder.mode==='wrap'){ ladder.idx=(ladder.idx+1)%SUBS.length; }
+          else { if(ladder.idx+ladder.dir<0 || ladder.idx+ladder.dir>=SUBS.length) ladder.dir=-ladder.dir; ladder.idx+=ladder.dir; }
+          ladderApply(); cellIndex=0;   // start the new subdivision on a fresh bar
+        }
+      }
     }
   }
 }
@@ -502,7 +532,7 @@ function start(){
   document.getElementById('play').textContent='■';
   document.getElementById('miniPlay').textContent='■';
   if(bounce.on){ bounce.bar=0; bounce.barTime=actx.currentTime+0.1; bounceVisQ=[]; lastBFig=null; }
-  else { cellIndex=0; nextTime=actx.currentTime+0.06; }
+  else { if(ladder.on){ ladderReset(); ladderApply(); } cellIndex=0; nextTime=actx.currentTime+0.06; }
   timer=setInterval(tick,25);
 }
 function stop(){
@@ -848,7 +878,7 @@ var bouncePreview=function(){};
   document.getElementById('bounceSw').onclick=function(){
     bounce.on=!bounce.on; this.classList.toggle('on',bounce.on); this.setAttribute('aria-checked',bounce.on);
     document.getElementById('bounceBody').classList.toggle('open',bounce.on);
-    if(bounce.on) preview();
+    if(bounce.on){ preview(); setLadderOff(); }
     if(playing){ stop(); start(); }
   };
   countSel.onchange=function(){ bounce.count=+this.value; };
@@ -869,6 +899,38 @@ var bouncePreview=function(){};
 })();
 
 // play
+// ── subdivision ladder ──
+function ladderApply(){                 // point sub at the current rung + refresh grid/UI
+  sub=SUBS[ladder.idx].n;
+  var subsEl=document.getElementById('subs');
+  [].forEach.call(subsEl.children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
+  resetPattern(); buildGrid(); updateSwingHint();
+  var now=document.getElementById('ladNow'); if(now) now.textContent=SUBS[ladder.idx].name;
+}
+function ladderReset(){ ladder.idx=0; ladder.barsDone=0; ladder.dir=1; }
+function setLadderOff(){ ladder.on=false; var sw=document.getElementById('ladderSw');
+  if(sw){ sw.classList.remove('on'); sw.setAttribute('aria-checked','false'); }
+  var b=document.getElementById('ladderBody'); if(b) b.classList.remove('open'); }
+function updateLadStatus(){ var cd=document.getElementById('ladCd'); if(!cd) return;
+  cd.textContent=ladder.repeats+(ladder.repeats===1?' bar each':' bars each')+' · '+(ladder.mode==='wrap'?'up ↻ restart':'up & back down'); }
+
+document.getElementById('ladderSw').onclick=function(){
+  ladder.on=!ladder.on; this.classList.toggle('on',ladder.on); this.setAttribute('aria-checked',ladder.on);
+  document.getElementById('ladderBody').classList.toggle('open',ladder.on);
+  if(ladder.on){
+    if(bounce.on){ bounce.on=false; var bs=document.getElementById('bounceSw');
+      bs.classList.remove('on'); bs.setAttribute('aria-checked','false'); document.getElementById('bounceBody').classList.remove('open'); }
+    ladderReset(); updateLadStatus(); if(!playing) ladderApply();
+  }
+  if(playing){ stop(); start(); }
+};
+function setLadRep(v){ ladder.repeats=Math.max(1,Math.min(16,v)); document.getElementById('ladRepVal').textContent=ladder.repeats; updateLadStatus(); }
+document.getElementById('ladRepUp').onclick=function(){ setLadRep(ladder.repeats+1); };
+document.getElementById('ladRepDn').onclick=function(){ setLadRep(ladder.repeats-1); };
+(function(){ var lmo=document.getElementById('ladModeOpts');
+  [].forEach.call(lmo.children,function(b){ b.onclick=function(){ ladder.mode=b.dataset.mode;
+    [].forEach.call(lmo.children,function(x){ x.classList.toggle('on',x===b); }); updateLadStatus(); }; }); })();
+
 document.getElementById('play').onclick=function(){ playing?stop():start(); };
 document.getElementById('miniPlay').onclick=function(){ playing?stop():start(); };
 // show the floating transport only once the main play button has scrolled out of view
@@ -879,7 +941,7 @@ document.getElementById('miniPlay').onclick=function(){ playing?stop():start(); 
 })();
 
 // ── boot ──
-resetPattern(); buildGrid(); buildPolyOpts(); buildPolyTrack(); updateSwingHint();
+resetPattern(); buildGrid(); buildPolyOpts(); buildPolyTrack(); updateSwingHint(); updateLadStatus();
 })();
 </script>
 </body>
