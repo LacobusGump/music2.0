@@ -456,7 +456,7 @@ function buildUI() {
       kDown.textContent = '\u2212';
       kDown.onclick = function() {
         if (!voice.on) return;
-        if (voice.k > 0) { voice.k--; voice.rot = 0; buildUI(); if(playing){stopPlayback();startPlayback();} drawCanvas(); }
+        if (voice.k > 0) { voice.k--; buildUI(); if(playing){stopPlayback();startPlayback();} drawCanvas(); }
       };
       var kVal = document.createElement('span');
       kVal.style.cssText = 'font-family:Courier New,monospace;font-size:0.85em;color:' + voice.color + ';min-width:1.5em;text-align:center;';
@@ -466,7 +466,7 @@ function buildUI() {
       kUp.textContent = '+';
       kUp.onclick = function() {
         if (!voice.on) return;
-        if (voice.k < cycleN) { voice.k++; voice.rot = 0; buildUI(); if(playing){stopPlayback();startPlayback();} drawCanvas(); }
+        if (voice.k < cycleN) { voice.k++; buildUI(); if(playing){stopPlayback();startPlayback();} drawCanvas(); }
       };
       kGroup.appendChild(kLabel);
       kGroup.appendChild(kDown);
@@ -585,7 +585,7 @@ function setupGlobalControls() {
       cycleN--;
       for (var i=0;i<voices.length;i++) {
         voices[i].n = cycleN;
-        voices[i].rot = 0;
+        voices[i].rot = ((voices[i].rot % cycleN) + cycleN) % cycleN;
         if (voices[i].k > cycleN) voices[i].k = cycleN;
       }
       nVal.textContent = cycleN;
@@ -597,7 +597,7 @@ function setupGlobalControls() {
   if (nUp) nUp.onclick = function() {
     if (cycleN < 32) {
       cycleN++;
-      for (var i=0;i<voices.length;i++) { voices[i].n = cycleN; voices[i].rot = 0; }
+      for (var i=0;i<voices.length;i++) { voices[i].n = cycleN; }
       nVal.textContent = cycleN;
       buildUI();
       if (playing) { stopPlayback(); startPlayback(); }
