@@ -492,14 +492,18 @@ function ensureAudio(){
   noiseBuf=b;
 }
 function volFromSlider(){ return Math.pow($('vol').value/100,1.5)*1.1; }
+var playGain=null;
+function bus(){ return (playing && playGain) ? playGain : volGain; }
+function openBus(){ closeBus(); playGain=actx.createGain(); playGain.connect(volGain); }
+function closeBus(){ if(playGain){ try{ playGain.disconnect(); }catch(e){} playGain=null; } }
 
 // one click. level: 1 normal, 2 accent. down: is it the beat's downbeat (posInBeat 0)
 function click(time, level, down, hand){
   var acc=level===2;
   var g=actx.createGain();
   var peak=(acc?0.95:0.5)*(down&&level===1?1.15:1);   // beat-starts a hair stronger even when normal
-  var dest=volGain;
-  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  var dest=bus();
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(bus()); dest=pan; }
   g.connect(dest);
   if(soundType==='beep'){
     var o=actx.createOscillator(); o.type='sine';
@@ -538,8 +542,8 @@ function click(time, level, down, hand){
 
 // grace note (flam/drag) — soft, quick, on the opposite hand, just before the main stroke
 function graceClick(time, hand){
-  var g=actx.createGain(), dest=volGain;
-  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  var g=actx.createGain(), dest=bus();
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(bus()); dest=pan; }
   g.connect(dest);
   var o=actx.createOscillator(); o.type='triangle'; o.frequency.value=880;
   g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(0.22,time+0.001);
@@ -548,8 +552,8 @@ function graceClick(time, hand){
 }
 // buzz (multiple-bounce) — a short pressed noise burst
 function buzzClick(time, hand){
-  var g=actx.createGain(), dest=volGain;
-  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(volGain); dest=pan; }
+  var g=actx.createGain(), dest=bus();
+  if(hand){ var pan=actx.createStereoPanner(); pan.pan.value=(hand==='R'?0.55:-0.55); pan.connect(bus()); dest=pan; }
   g.connect(dest);
   var s=actx.createBufferSource(); s.buffer=noiseBuf;
   var bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=3000; bp.Q.value=0.7;
@@ -562,14 +566,14 @@ function buzzClick(time, hand){
 // Ported from the polyrhythm machine, but routed through the volume bus rather
 // than straight at the speakers, so one Volume control governs everything.
 function voiceClick(snd, time, acc){
-  var g=actx.createGain(); g.connect(volGain);
+  var g=actx.createGain(); g.connect(bus());
   var vel=acc?1:0.62;
   if(snd==='kick'){
     var o=actx.createOscillator(); o.type='sine';
     o.frequency.setValueAtTime(150,time); o.frequency.exponentialRampToValueAtTime(40,time+0.08);
     g.gain.setValueAtTime(0.55*vel,time); g.gain.exponentialRampToValueAtTime(0.001,time+0.25);
     o.connect(g); o.start(time); o.stop(time+0.26);
-    var o2=actx.createOscillator(), g2=actx.createGain(); g2.connect(volGain);
+    var o2=actx.createOscillator(), g2=actx.createGain(); g2.connect(bus());
     o2.type='triangle'; o2.frequency.setValueAtTime(4000,time);
     o2.frequency.exponentialRampToValueAtTime(200,time+0.01);
     g2.gain.setValueAtTime(0.18*vel,time); g2.gain.exponentialRampToValueAtTime(0.001,time+0.02);
@@ -579,7 +583,7 @@ function voiceClick(snd, time, acc){
     var bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1800; bp.Q.value=0.8;
     g.gain.setValueAtTime(0.5*vel,time); g.gain.exponentialRampToValueAtTime(0.001,time+0.13);
     s.connect(bp); bp.connect(g); s.start(time); s.stop(time+0.14);
-    var t2=actx.createOscillator(), g3=actx.createGain(); g3.connect(volGain);
+    var t2=actx.createOscillator(), g3=actx.createGain(); g3.connect(bus());
     t2.type='triangle'; t2.frequency.setValueAtTime(190,time);
     g3.gain.setValueAtTime(0.22*vel,time); g3.gain.exponentialRampToValueAtTime(0.001,time+0.07);
     t2.connect(g3); t2.start(time); t2.stop(time+0.08);
@@ -660,13 +664,15 @@ function start(){
   ensureAudio();
   if(actx.state==='suspended') actx.resume();
   playing=true; document.body.classList.add('running');
+  openBus();
   $('play').textContent='■';
   if(bounce.on){ bounce.bar=0; bounce.barTime=actx.currentTime+0.1; bounceVisQ=[]; lastBFig=null; }
   else { if(ladder.on){ ladderReset(); ladderApply(); } cellIndex=0; nextTime=actx.currentTime+0.06; }
   timer=setInterval(tick,25);
 }
 function stop(){
-  playing=false; document.body.classList.remove('running');
+  playing=false; closeBus();          // silence anything already queued ahead
+  document.body.classList.remove('running');
   $('play').textContent='▶';
   clearInterval(timer); timer=null; visQ=[]; laneVisQ=[]; barVisQ=[]; bounceVisQ=[];
   var cur=document.querySelector('.cell.now'); if(cur) cur.classList.remove('now');
@@ -681,7 +687,7 @@ function restartBar(){ if(playing){ cellIndex=0; nextTime=actx.currentTime+0.05;
 var bounceVisQ=[], lastBFig=null;
 function tick(){ bounce.on ? bounceSchedule() : schedule(); }
 function countClick(time, beatOne){          // crisp square blip — sits apart from the figure voice
-  var g=actx.createGain(); g.connect(volGain);
+  var g=actx.createGain(); g.connect(bus());
   var o=actx.createOscillator(); o.type='square'; o.frequency.value=beatOne?2000:1400;
   var bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=beatOne?2000:1400; bp.Q.value=1;
   g.gain.setValueAtTime(0.0001,time); g.gain.exponentialRampToValueAtTime(beatOne?0.5:0.3,time+0.001);
