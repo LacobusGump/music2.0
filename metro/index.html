@@ -238,6 +238,16 @@ body.simple .sect>h2{margin-bottom:6px;}
 body.simple .hint{font-size:.62rem;line-height:1.55;}
 body.simple #grpCircle{margin-top:10px;}
 
+.modeswitch{display:inline-flex;border:1px solid rgba(201,164,74,.28);border-radius:999px;overflow:hidden;
+  font-family:inherit;font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;flex-shrink:0;}
+.modeswitch .ms-opt{padding:8px 16px;color:rgba(196,160,136,.5);background:none;border:none;cursor:pointer;
+  font-family:inherit;font-size:1em;letter-spacing:inherit;text-transform:inherit;transition:background .3s,color .3s;}
+.modeswitch .ms-opt.on{background:rgba(201,164,74,.16);color:#e8cfa0;}
+.temporow{display:flex;align-items:center;gap:9px;}
+.temporow input[type=range]{flex:1;min-width:0;height:6px;}
+.step.lg{width:46px;height:46px;font-size:1.3rem;border-radius:12px;}
+.key.tapkey{flex:0 0 auto;min-height:46px;padding:8px 13px;font-size:.8rem;}
+
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 @media (max-height:660px){
@@ -252,7 +262,7 @@ body.simple #grpCircle{margin-top:10px;}
 <body>
 
 <div class="chrome"><a href="/">← beGump</a>
-  <div class="chrome-r"><h1>Metronome</h1><button class="modesw" id="modeSw" aria-pressed="false"><i></i>full</button></div>
+  <div class="modeswitch"><button class="ms-opt on" id="msBasic">basic</button><button class="ms-opt" id="msFull">full</button></div>
 </div>
 
 <div class="display">
@@ -295,17 +305,12 @@ body.simple #grpCircle{margin-top:10px;}
   <!-- ── TEMPO ── -->
   <div class="panel on" id="clockPanel">
     <div class="grp" id="grpTempo">
-    <div class="keys">
-      <button class="key" id="dn5">−5</button>
-      <button class="key" id="dn1">−1</button>
-      <button class="key" id="up1">+1</button>
-      <button class="key" id="up5">+5</button>
-      <button class="key" data-set="60">60<small>largo</small></button>
-      <button class="key" data-set="90">90<small>walk</small></button>
-      <button class="key" data-set="120">120<small>march</small></button>
-      <button class="key" id="tap">Tap<small>4 hits</small></button>
-    </div>
-    <div class="slide" style="margin-top:15px;"><label>Tempo</label><input type="range" id="tempo" min="30" max="300" value="120"><span class="val" id="tempoVal">120</span></div>
+      <div class="temporow">
+        <button class="step lg" id="dn1" aria-label="slower">−</button>
+        <input type="range" id="tempo" min="30" max="300" value="120">
+        <button class="step lg" id="up1" aria-label="faster">+</button>
+        <button class="key tapkey" id="tap">Tap<small>4 hits</small></button>
+      </div>
     </div>
   
     <div class="sect grp" id="grpSub">
@@ -948,15 +953,11 @@ function setSub(n){
 function setBpm(v,fromAccel){
   bpm=Math.max(30,Math.min(300,Math.round(v)));
   $('bpm').textContent=bpm;
-  if(!fromAccel){ $('tempo').value=bpm; $('tempoVal').textContent=bpm; save(); }
-  else $('tempoVal').textContent=bpm;
+  if(!fromAccel){ $('tempo').value=bpm; save(); }
 }
 $('tempo').addEventListener('input',function(){ setBpm(+this.value); });
 $('up1').onclick=function(){ setBpm(bpm+1); };
 $('dn1').onclick=function(){ setBpm(bpm-1); };
-$('up5').onclick=function(){ setBpm(bpm+5); };
-$('dn5').onclick=function(){ setBpm(bpm-5); };
-[].forEach.call(document.querySelectorAll('[data-set]'),function(b){ b.onclick=function(){ setBpm(+b.dataset.set); }; });
 
 // tap tempo
 var taps=[];
@@ -1337,7 +1338,8 @@ function layout(){
   function put(parent,ids,first){ ids.forEach(function(id){ var el=$(id); if(!el) return;
     if(first && parent.firstChild) parent.insertBefore(el,parent.firstChild); else parent.appendChild(el); }); }
   document.body.classList.toggle('simple',simple);
-  $('modeSw').setAttribute('aria-pressed', simple?'false':'true');
+  $('msBasic').classList.toggle('on',simple);
+  $('msFull').classList.toggle('on',!simple);
   if(simple){
     put(S,['grpTempo','grpSub','grpCircle','grpCross','grpSwing','grpRamps']);
     [].forEach.call(document.querySelectorAll('.panel'),function(p){ p.classList.toggle('on',p.id==='simplePanel'); });
@@ -1353,7 +1355,8 @@ function layout(){
   try{ localStorage.setItem('metro.mode', simple?'simple':'full'); }catch(e){}
   sizeCircle();
 }
-$('modeSw').onclick=function(){ simple=!simple; layout(); };
+$('msBasic').onclick=function(){ if(!simple){ simple=true; layout(); } };
+$('msFull').onclick=function(){ if(simple){ simple=false; layout(); } };
 
 // ── cross-rhythm: n even pulses across the bar (voice 4) ─
 var CROSS=[0,3,5,7];
@@ -1377,16 +1380,23 @@ function buildCross(){
 
 // ── the circle: one trip round is one bar ───────────────
 var cvs=$('circle'), cx=cvs?cvs.getContext('2d'):null, curBarStart=-1;
+// Re-checked every frame: moving the canvas between panels changes its width,
+// and a stale backing size is what drew the ring twice.
 function sizeCircle(){
-  if(!cvs) return;
+  if(!cvs||!cx) return 0;
   var dpr=Math.min(2,window.devicePixelRatio||1);
-  var w=cvs.clientWidth||260;
-  cvs.width=w*dpr; cvs.height=w*dpr;
-  if(cx) cx.setTransform(dpr,0,0,dpr,0,0);
+  var w=Math.round(cvs.clientWidth||200);
+  if(w<40) return 0;
+  if(cvs.width!==Math.round(w*dpr) || cvs.height!==Math.round(w*dpr)){
+    cvs.width=Math.round(w*dpr); cvs.height=Math.round(w*dpr);
+    cvs.style.height=w+'px';
+  }
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  return w;
 }
 function drawCircle(){
-  if(!cx) return;
-  var w=cvs.clientWidth||260, R=w/2, cxx=R, cyy=R;
+  var w=sizeCircle(); if(!w) return;
+  var R=w/2, cxx=R, cyy=R;
   cx.clearRect(0,0,w,w);
   var barDur=(60/bpm)*beats;
   var ph=0;
@@ -1397,6 +1407,21 @@ function drawCircle(){
   var r0=R-14;
   cx.strokeStyle='rgba(198,180,152,.13)'; cx.lineWidth=1;
   cx.beginPath(); cx.arc(cxx,cyy,r0,0,Math.PI*2); cx.stroke();
+  var fine=beats*sub;
+  if(fine<=96 && sub>1){                      // every subdivision, quietly
+    cx.strokeStyle='rgba(198,180,152,.20)'; cx.lineWidth=1;
+    for(var f=0;f<fine;f++){
+      if(f%sub===0) continue;                 // beats are drawn stronger below
+      var af=-Math.PI/2 + (f/fine)*Math.PI*2;
+      var litf=playing && Math.floor(ph*fine)===f;
+      cx.strokeStyle=litf?'rgba(243,212,136,.8)':'rgba(198,180,152,.20)';
+      cx.lineWidth=litf?2:1;
+      cx.beginPath();
+      cx.moveTo(cxx+Math.cos(af)*(r0-4), cyy+Math.sin(af)*(r0-4));
+      cx.lineTo(cxx+Math.cos(af)*(r0+4), cyy+Math.sin(af)*(r0+4));
+      cx.stroke();
+    }
+  }
   for(var b=0;b<beats;b++){
     var a=-Math.PI/2 + (b/beats)*Math.PI*2;
     var lit=playing && Math.floor(ph*beats)===b;
