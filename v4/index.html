@@ -792,11 +792,33 @@ document.addEventListener('touchmove', function (e) {
   }
 }, { passive: true });
 
-// Desktop mouse fallback
+// Desktop mouse fallback — drag, not just a poke.
+// The engine is velocity-driven, so a mousedown with vx=vy=0 said "you are here,
+// standing still" and nothing ever moved. Mirrors the touchmove maths exactly.
+var mouseDown = false, usingTouch = false;
+var prevMX = 0, prevMY = 0, prevMT = 0;
+document.addEventListener('touchstart', function () { usingTouch = true; }, { passive: true, capture: true });
+
 document.addEventListener('mousedown', function (e) {
-  if (!started) return;
-  Conductor.touch(e.clientX / W, e.clientY / H, 0, 0);
+  if (!started || usingTouch) return;          // mobile synthesises mouse events after touch
+  mouseDown = true;
+  prevMX = e.clientX / W; prevMY = e.clientY / H; prevMT = performance.now();
+  Conductor.touch(prevMX, prevMY, 0, 0);
 });
+
+document.addEventListener('mousemove', function (e) {
+  if (!started || usingTouch || !mouseDown) return;
+  var nowMs = performance.now(), dtMs = nowMs - prevMT;
+  if (dtMs <= 0) return;
+  var curX = e.clientX / W, curY = e.clientY / H;
+  var vx = (curX - prevMX) / (dtMs / 1000);
+  var vy = (curY - prevMY) / (dtMs / 1000);
+  prevMX = curX; prevMY = curY; prevMT = nowMs;
+  Conductor.touch(curX, curY, vx, vy);
+});
+
+document.addEventListener('mouseup',    function () { mouseDown = false; });
+document.addEventListener('mouseleave', function () { mouseDown = false; });
 
 // ── SAMPLE LOADER ─────────────────────────────────────────────────────────
 // Loads real audio files → Sound.loadSample(slot, buffer)
