@@ -313,7 +313,7 @@ const App = (function () {
         blog(introPlayed ? 'Returning user -- instant start' : 'First visit -- waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(1);
+          Lens.selectCard(0);   // Drift — the gentlest way in. Grid was PRESETS[1].
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
           applyLens(lens);
