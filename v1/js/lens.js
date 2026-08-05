@@ -648,8 +648,10 @@ const Lens = (function () {
 
 
   // ── DEFAULT INDEX ──────────────────────────────────────────────────────
-  // Journey (index 6) is the default — the full arc.
-  var DEFAULT_INDEX = 6;
+  // Drift (index 0) is the default — the gentlest way in. Journey is the full
+  // arc and it's still one tap away, but it shouldn't be what a stranger meets
+  // first. Returning visitors keep whatever they last chose.
+  var DEFAULT_INDEX = 0;
 
 
   // ── STATE ──────────────────────────────────────────────────────────────
