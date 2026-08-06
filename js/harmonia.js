@@ -24,7 +24,7 @@ var SITE = [
   {id:'60',url:'/60/',name:'60 Seconds',summary:'One framework. Four numbers. 20 domains. Understand GUMP in 60 seconds.',topics:['intro','K','R','coupling','overview'],related:['start-here','framework','research']},
   {id:'trail',url:'/trail/',name:'The Trail',summary:'The full chronological trail of how this was built. Every session documented.',topics:['history','process','sessions'],related:['how-we-work','pulse']},
   {id:'mirror',url:'/mirror/',name:'Mirror',summary:'The mirror page. Reflection on what coupling means.',topics:['coupling','reflection','consciousness'],related:['consciousness','the-chain']},
-  {id:'play',url:'/play/',name:'Play',summary:'The instrument. Tilt your phone. Make music from motion.',topics:['music','instrument','motion','phone'],related:['the-drum','the-groove','body-music']},
+  {id:'play',url:'/play/',name:'Play',summary:'The instrument. Tilt your phone. Make music from motion.',topics:['music','instrument','motion','phone'],related:['the-drum','body-music']},
   {id:'love',url:'/love/',name:'Love',summary:'What is love? The same math. 1+1=3.',topics:['love','coupling','1+1=3'],related:['one-plus-one','the-chain','consciousness']},
   {id:'pulse',url:'/pulse/',name:'Pulse',summary:'Live project pulse. What changed, what shipped, what broke.',topics:['updates','changelog','progress'],related:['trail','how-we-work']},
   {id:'support',url:'/support/',name:'Support',summary:'Support the project. Everything is free. Support is optional.',topics:['support','donate'],related:['home']},
@@ -41,11 +41,10 @@ var SITE = [
   {id:'the-map',url:'/research/the-map/',name:'The Map',summary:'Unified biological blueprint under K. Disease as decoupling.',topics:['biology','disease','map','unified'],related:['alzheimers','cancer-signaling','framework']},
 
   // Research — Music & Body
-  {id:'the-drum',url:'/research/the-drum/',name:'The Drum',summary:'Why drums work. Phase-locking across the nervous system.',topics:['drums','rhythm','phase-lock','music','neuroscience'],related:['the-groove','polyrhythm','body-music']},
-  {id:'the-groove',url:'/research/the-groove/',name:'The Groove',summary:'What makes a groove? 1/f timing fluctuations. The body knows.',topics:['groove','timing','1/f','music','rhythm'],related:['the-drum','polyrhythm','body-music']},
-  {id:'polyrhythm',url:'/research/polyrhythm/',name:'Polyrhythm',summary:'Multiple rhythms coupling. Euclidean rhythms. The math of feel.',topics:['polyrhythm','Euclidean','rhythm','music'],related:['the-drum','the-groove','music-theory']},
+  {id:'the-drum',url:'/research/the-drum/',name:'The Drum',summary:'Why drums work. Phase-locking across the nervous system.',topics:['drums','rhythm','phase-lock','music','neuroscience'],related:['polyrhythm','body-music']},
+  {id:'polyrhythm',url:'/research/polyrhythm/',name:'Polyrhythm',summary:'Multiple rhythms coupling. Euclidean rhythms. The math of feel.',topics:['polyrhythm','Euclidean','rhythm','music'],related:['the-drum','music-theory']},
   {id:'body-music',url:'/research/body-music/',name:'Body Music',summary:'The body as instrument. Heart, breath, gait — all coupled oscillators.',topics:['body','oscillators','biofeedback','music'],related:['the-drum','biofeedback','consciousness']},
-  {id:'music-theory',url:'/research/music-theory/',name:'Music Theory',summary:'Music theory through coupling. Consonance is phase-lock.',topics:['music','theory','consonance','harmony'],related:['the-drum','the-groove','polyrhythm']},
+  {id:'music-theory',url:'/research/music-theory/',name:'Music Theory',summary:'Music theory through coupling. Consonance is phase-lock.',topics:['music','theory','consonance','harmony'],related:['the-drum','polyrhythm']},
   {id:'biofeedback',url:'/research/biofeedback/',name:'Biofeedback',summary:'Real-time biological coupling measurement.',topics:['biofeedback','sensors','body','oscillators'],related:['body-music','the-drum','sleep-staging']},
 
   // Research — Medicine
@@ -135,7 +134,7 @@ var SITE = [
   // Research — Additional
   {id:'the-download',url:'/research/the-download/',name:'The Download',summary:'Sleep and death as the same process at different depths. Ego dissolves, personality preserved. 10 parallels tested, 0 killed.',topics:['sleep','death','ego','consciousness','coupling'],related:['sleep-dreams','consciousness','the-chain']},
   {id:'k-lag',url:'/research/k-lag/',name:'K-Lag Spectrum',summary:'K is not one number. It is a function of lag. Short-range coupling tells you arousal. Long-range coupling tells you valence. Confirmed in bird calls and human speech.',topics:['K','lag','spectrum','timescale','coupling'],related:['framework','bird-coupling','body-music']},
-  {id:'music-evolution',url:'/research/music-evolution/',name:'Music Evolution',summary:'What makes music good? R/K IS groove. Consonance IS energy. Genre evolution IS coupling migration. 315 cultures, same patterns.',topics:['music','groove','consonance','genre','coupling','evolution'],related:['the-drum','the-groove','polyrhythm']},
+  {id:'music-evolution',url:'/research/music-evolution/',name:'Music Evolution',summary:'What makes music good? R/K IS groove. Consonance IS energy. Genre evolution IS coupling migration. 315 cultures, same patterns.',topics:['music','groove','consonance','genre','coupling','evolution'],related:['the-drum','polyrhythm']},
   {id:'bird-coupling',url:'/research/bird-coupling/',name:'Bird Coupling',summary:'Why birds sing. Coupling function predicts call structure across species. Territory, mating, alarm — all predictable. 79 recordings, 6 species.',topics:['birds','singing','coupling','prediction','biology'],related:['k-lag','ecology','body-music']},
   {id:'uncoupled-flight',url:'/research/uncoupled-flight/',name:'Uncoupled Flight',summary:'How right was Bob Lazar? Element 115 confirmed 14 years early. Spacetime manipulation described 5 years before Alcubierre. Education killed. 7/10 FBI match.',topics:['Lazar','UFO','element-115','physics','coupling'],related:['the-builder','lost-civilizations','from-twitter']},
   {id:'from-twitter',url:'/research/from-twitter/',name:'Ideas from Twitter',summary:'People reached out. We listened. Bob Lazar, Fosmark gravity, Thiel quaternions, Kcode pipes. Every interaction produced a 3.',topics:['twitter','community','coupling','interaction'],related:['uncoupled-flight','how-we-work']},

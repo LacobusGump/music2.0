@@ -64,8 +64,7 @@ window.RADIO=(function(){
     'from-twitter':'gravity',regulatory:'gravity',
     'quantum-build':'quantum-harmonics',materials:'chemistry',thermodynamics:'chemistry',
     'drug-interactions':'ecology','mycelium-networks':'ecology','defi-coupling':'bird-coupling',consciousness:'body-music',
-    'the-line':'the-drum','prime-bounce':'the-drum','ale-spectral-ladder':'the-drum','alpha-fixed-point':'the-drum',zero:'the-drum',
-    'the-groove':'polyrhythm','music-evolution':'polyrhythm',
+    'the-line':'the-drum','prime-bounce':'the-drum','ale-spectral-ladder':'the-drum','alpha-fixed-point':'the-drum',zero:'the-drum','music-evolution':'polyrhythm',
     networks:'ai-fatigue','novelty-pathology':'ai-fatigue','true-automation':'ai-fatigue',dyslexia:'ai-fatigue',
     rome:'bach','the-lion':'bach','nina-simone':'bach','aaron-is-right':'bach',tesla:'bach','van-gogh':'bach'
   };
