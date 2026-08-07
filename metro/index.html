@@ -36,7 +36,16 @@ body{
 /* ── the face ─────────────────────────────────────────── */
 /* The bar is a loop, so the instrument's face is a circle. The BPM lives
    in its centre; the rings are the rhythm. Everything below serves this. */
-.stage{flex:0 0 auto;display:flex;justify-content:center;padding:2px 0 0;}
+.stage{flex:0 0 auto;display:flex;justify-content:center;padding:2px 0 0;position:relative;}
+.vizbtn{position:absolute;top:2px;right:12px;z-index:3;font-family:inherit;font-size:.55rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);background:rgba(23,26,32,.72);border:1px solid var(--edge);border-radius:999px;padding:6px 12px;cursor:pointer;transition:all .2s;}
+.vizbtn:hover{color:var(--dim);}
+.vizbtn[aria-pressed="true"]{color:var(--ember);border-color:rgba(224,178,78,.4);}
+body.vizmode .center{justify-content:flex-start;padding-top:6px;}
+body.vizmode .cbpm{font-size:1.05rem;opacity:.85;}
+body.vizmode .cline{display:none;}
+body.vizmode #drillLine{display:none;}
+body.vizmode.bouncemode #drillLine{display:flex;margin-top:0;}
 .flipper{position:relative;display:inline-block;transition:transform .17s ease-in;}
 .flipper.flip{transform:scaleX(.06);}
 #circle{width:min(88vw,39dvh);height:auto;display:block;touch-action:none;cursor:pointer;}
@@ -215,6 +224,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 <div class="chrome"><a href="/">← beGump</a><h1>Metronome</h1></div>
 
 <div class="stage">
+  <button class="vizbtn" id="vizBtn" aria-pressed="false">3D</button>
   <div class="flipper" id="flipper">
     <canvas id="circle" width="300" height="300"></canvas>
     <div class="center">
@@ -237,6 +247,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
   <div class="temporow2">
     <button class="key tapkey" id="tap">Tap<small>4 hits</small></button>
     <button class="key tapkey" id="rampKey">Ramp<small id="rampSub">off</small></button>
+    <button class="key tapkey" id="clickKey">Click<small id="clickSub">on</small></button>
   </div>
   <div class="body" id="rampUpBody">
     <div class="slide"><label>Speed&nbsp;up</label><input type="range" id="rate" min="0" max="100" value="35"><span class="val" id="rateVal">+1.0/bar</span></div>
@@ -373,6 +384,7 @@ var $=function(id){ return document.getElementById(id); };
 
 // ── state ──
 var bpm=120, beats=4, sub=4, soundType='wood', playing=false;
+var clickMute=false, viz=false;
 var pattern=[];                 // per cell: 0 off, 1 normal, 2 accent
 var accel={on:false, rate:1.0, target:200};
 var decel={on:false, rate:1.0, floor:60};
@@ -623,7 +635,7 @@ function schedule(){
     }
     var lvl=pattern[i]||0;
     var down=(i%sub)===0;
-    if(lvl>0) click(nextTime, lvl, down);
+    if(lvl>0 && !clickMute) click(nextTime, lvl, down);
     visQ.push({cell:i,time:nextTime});
     // advance — swing redistributes each even-odd pair, preserving bar length
     var spc=(60/bpm)/sub, dur;
@@ -697,7 +709,7 @@ function bounceSchedule(){
     bounceVisQ.push({time:barStart, barStart:true, side:w.side, left:w.left, figId:fig.id, nextName:w.next.name});
     // steady count
     var cs=bounce.count, ctotal=beats*cs;
-    for(var k=0;k<ctotal;k++) countClick(barStart + k*barDur/ctotal, (k%cs)===0);
+    if(!clickMute) for(var k=0;k<ctotal;k++) countClick(barStart + k*barDur/ctotal, (k%cs)===0);
     // figure notes
     var sticks=buildBarSticks(fig), ftotal=sticks.length;
     for(var j=0;j<ftotal;j++){
@@ -755,7 +767,7 @@ function updateBounceStatus(e){
 var nowCell=-1, voiceFlash={}, stickNow=-1;
 function draw(){
   requestAnimationFrame(draw);
-  drawCircle();
+  if(viz) drawViz(); else drawCircle();
   if(!playing||!actx) return;
   var t=actx.currentTime, changed=false;
   while(visQ.length && visQ[0].time<=t){ nowCell=visQ.shift().cell; changed=true; }
@@ -848,6 +860,7 @@ function updateStatus(){
   } else if(swing.on){ bits.push('swing n/a'); }
   else bits.push('straight');
   if(voices[3] && voices[3].on) bits.push(voices[3].n+':'+beats);
+  if(clickMute) bits.push('click off');
   if(ladder.on) bits.push('ladder');
   if(accel.on) bits.push('→'+accel.target);
   if(decel.on) bits.push('→'+decel.floor);
@@ -919,6 +932,15 @@ $('tap').onclick=function(){
     setBpm(60000/avg);
   }
 };
+
+// click mute — the layers can carry the time; the hat is a click too
+function setClickMute(v){
+  clickMute=v;
+  $('clickKey').classList.toggle('on',v);
+  $('clickSub').textContent=v?'muted':'on';
+  updateStatus();
+}
+$('clickKey').onclick=function(){ setClickMute(!clickMute); save(); };
 
 // beats/bar
 function setBeats(v){ beats=Math.max(1,Math.min(12,v)); $('beatsVal').textContent=beats;
@@ -1078,7 +1100,7 @@ $('ladRepDn').onclick=function(){ setLadRep(ladder.repeats-1); };
 // Tap recalls it; press and hold stores what's on screen right now.
 var KEY='metro.v2';
 function snapshot(){
-  return {bpm:bpm,beats:beats,sub:sub,sound:soundType,vol:+$('vol').value,pattern:pattern.slice(),
+  return {bpm:bpm,beats:beats,sub:sub,sound:soundType,vol:+$('vol').value,pattern:pattern.slice(),cm:clickMute?1:0,
     accel:{on:accel.on,r:+$('rate').value,t:accel.target},
     decel:{on:decel.on,r:+$('drate').value,f:decel.floor},
     swing:{on:swing.on,r:+$('swingR').value,alt:swing.alt,s:swing.straightBars,w:swing.swungBars},
@@ -1093,6 +1115,7 @@ function applySnapshot(s){
   $('beatsVal').textContent=beats;
   [].forEach.call($('subs').children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
   [].forEach.call($('sounds').children,function(x){ x.classList.toggle('on',x.dataset.id===soundType); });
+  setClickMute(!!s.cm);          // absent in old snapshots — defaults to on
   // ramp
   $('rate').value=s.accel.r; accel.rate=rateFromSlider(s.accel.r); $('rateVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
   accel.target=s.accel.t; $('target').value=accel.target; $('targetVal').textContent=accel.target;
@@ -1168,7 +1191,7 @@ function renderMems(){
   m.addEventListener('contextmenu',function(e){ e.preventDefault(); });
 });
 
-var DEFAULTS={bpm:120,beats:4,sub:4,sound:'wood',vol:75,pattern:null,
+var DEFAULTS={bpm:120,beats:4,sub:4,sound:'wood',vol:75,pattern:null,cm:0,
   accel:{on:false,r:35,t:200}, decel:{on:false,r:35,f:60},
   swing:{on:false,r:67,alt:false,s:2,w:2},
   voices:[{on:false,k:2,n:8,rot:0,snd:'kick',acc:{}},{on:false,k:2,n:8,rot:2,snd:'snare',acc:{}},{on:false,k:4,n:16,rot:0,snd:'hat',acc:{}},{on:false,k:3,n:3,rot:0,snd:'ping',acc:{}}],
@@ -1421,6 +1444,11 @@ function drawCircle(){
   }
   function wrapd(d){ if(d>Math.PI) d-=Math.PI*2; if(d<-Math.PI) d+=Math.PI*2; return d; }
   cvs.addEventListener('pointerdown',function(e){
+    if(viz){                                         // in 3D, dragging orbits the camera
+      drag={mode:'cam', x0:e.clientX, y0:e.clientY, yaw0:camYaw, pitch0:camPitch};
+      cvs.setPointerCapture(e.pointerId);
+      return;
+    }
     if(bounce.on) return;                            // the trainer drives the face
     var p=pt(e), r0=p.R-12;
     if(Math.abs(p.r-r0)<=15){ drag={mode:'grid', moved:false, x0:e.clientX, y0:e.clientY}; }
@@ -1437,6 +1465,11 @@ function drawCircle(){
   });
   cvs.addEventListener('pointermove',function(e){
     if(!drag) return;
+    if(drag.mode==='cam'){
+      camYaw=drag.yaw0+(e.clientX-drag.x0)*0.006;
+      camPitch=Math.max(0.05, Math.min(1.25, drag.pitch0+(e.clientY-drag.y0)*0.004));
+      return;
+    }
     if(Math.abs(e.clientX-drag.x0)+Math.abs(e.clientY-drag.y0)>10) drag.moved=true;
     if(drag.mode!=='ring' || !drag.moved) return;
     var p=pt(e), v=voices[drag.vi];
@@ -1452,6 +1485,7 @@ function drawCircle(){
   function fin(e){
     if(!drag) return;
     var d=drag; drag=null;
+    if(d.mode==='cam') return;
     var p=pt(e);
     if(d.mode==='ring'){
       if(d.moved){ save(); return; }
@@ -1476,11 +1510,144 @@ function drawCircle(){
   cvs.addEventListener('pointercancel',function(){ drag=null; });
 })();
 
+// ── 3D VISUALIZER — the cycle is a helix ────────────────
+// A repeating bar isn't a circle, it's a circle moving through time: a spiral.
+// One bar = one turn. Each voice's polygon extrudes into a twisted ribbon, and
+// voices with different step counts are different gears around the same axis —
+// they only line up where the rhythms actually coincide. Drag to orbit.
+var camYaw=0, camPitch=0.42, vizT=0;
+function setViz(v){
+  viz=v;
+  document.body.classList.toggle('vizmode',v);
+  $('vizBtn').setAttribute('aria-pressed',v?'true':'false');
+  $('vizBtn').textContent=v?'ring':'3D';
+  var st=loadStore(); st.viz=v?1:0; writeStore(st);
+}
+$('vizBtn').onclick=function(){ setViz(!viz); };
+
+function drawViz(){
+  var w=sizeCircle(); if(!w) return;
+  var R=w/2;
+  cx.clearRect(0,0,w,w);
+  vizT+=1/60;
+  var barDur=(60/bpm)*beats, ph=0;
+  if(playing && actx && curBarStart>=0){
+    ph=((actx.currentTime-curBarStart)/barDur)%1;
+    if(ph<0) ph=0;
+  }
+  var t=actx?actx.currentTime:0;
+  var yaw=camYaw+Math.sin(vizT*0.10)*0.16;           // gentle breathing even at rest
+  var pitch=camPitch;
+  var cyw=Math.cos(yaw), syw=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
+  var PITCHZ=1.25, CAMD=3.4, F=R*1.5, BARS=3;
+  function P(frac,u,rad){
+    // frac: position in the cycle 0..1 · u: bars from now · rad: helix radius
+    var th=(frac-ph)*Math.PI*2 - Math.PI/2;
+    var x=Math.cos(th)*rad, y=Math.sin(th)*rad, z=u*PITCHZ;
+    var y2=y*cp - z*sp,  z2=y*sp + z*cp;             // tilt
+    var x3=x*cyw + z2*syw, z3=-x*syw + z2*cyw;       // orbit
+    var d=z3+CAMD; if(d<0.4) d=0.4;
+    return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d};
+  }
+  // the now-ring — the plane the sound is on
+  cx.strokeStyle='rgba(243,212,136,.30)'; cx.lineWidth=1;
+  cx.beginPath();
+  for(var i=0;i<=48;i++){ var q=P(i/48,0,1.22); if(i===0)cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y); }
+  cx.stroke();
+  // the click helix — beats spiralling away into the coming bars
+  var clickA=clickMute?0.3:1;
+  var prev=null;
+  for(var b=BARS;b>=0;b--){
+    for(var i2=beats-1;i2>=0;i2--){
+      var frac=i2/beats, u=b+frac-ph;
+      if(u<-0.15||u>BARS) continue;
+      var fade=Math.max(0,1-u/(BARS+0.3));
+      var p=P(frac,u,1.22);
+      if(prev){
+        cx.strokeStyle='rgba(198,180,152,1)'; cx.globalAlpha=0.10*fade*clickA; cx.lineWidth=1;
+        cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke(); cx.globalAlpha=1;
+      }
+      prev=p;
+      var lit=playing && Math.abs(u)<0.03;
+      cx.fillStyle=(i2===0)?'#e0b24e':'#8f887a';
+      cx.globalAlpha=(i2===0?0.9:0.55)*fade*clickA;
+      cx.beginPath(); cx.arc(p.x,p.y,(i2===0?3.4:2.3)*p.s*(lit?1.9:1),0,Math.PI*2); cx.fill();
+      cx.globalAlpha=1;
+    }
+  }
+  // accented click cells (beyond the beats) as small gold marks
+  if(!bounce.on && beats*sub<=48){
+    for(var c2=0;c2<beats*sub;c2++){
+      if(pattern[c2]!==2 || c2%sub===0) continue;
+      for(var b2=0;b2<=BARS;b2++){
+        var u2=b2+c2/(beats*sub)-ph; if(u2<-0.15||u2>BARS) continue;
+        var f2=Math.max(0,1-u2/(BARS+0.3));
+        var p2=P(c2/(beats*sub),u2,1.22);
+        cx.fillStyle='#e0b24e'; cx.globalAlpha=0.5*f2*clickA;
+        cx.beginPath(); cx.arc(p2.x,p2.y,1.8*p2.s,0,Math.PI*2); cx.fill(); cx.globalAlpha=1;
+      }
+    }
+  }
+  // one voice = one helical thread; its polygon twists forward through time
+  function thread(frs, accs, steps, vi, rad, col){
+    // frs: cycle fractions of the onsets · accs: accent flags · steps: real step
+    // indices (for hit flashes; null for the bounce figure) · rad: helix radius
+    var evs=[];
+    for(var b3=0;b3<=BARS+1;b3++){
+      for(var k2=0;k2<frs.length;k2++){
+        var u3=b3+frs[k2]-ph;
+        if(u3<-0.25||u3>BARS) continue;
+        evs.push({u:u3, fr:frs[k2], acc:accs[k2], k:k2});
+      }
+    }
+    evs.sort(function(a,b){ return a.u-b.u; });
+    for(var e2=evs.length-1;e2>0;e2--){
+      var a2=P(evs[e2].fr,evs[e2].u,rad), b4=P(evs[e2-1].fr,evs[e2-1].u,rad);
+      var fd=Math.max(0,1-evs[e2].u/(BARS+0.3));
+      cx.strokeStyle=col; cx.globalAlpha=0.45*fd; cx.lineWidth=1.3*a2.s+0.3;
+      cx.beginPath(); cx.moveTo(b4.x,b4.y); cx.lineTo(a2.x,a2.y); cx.stroke(); cx.globalAlpha=1;
+    }
+    // the cross-section — the same polygon the ring view shows, on the now-plane
+    if(frs.length>=2){
+      cx.beginPath();
+      for(var k3=0;k3<frs.length;k3++){ var q2=P(frs[k3],0,rad); if(k3===0)cx.moveTo(q2.x,q2.y); else cx.lineTo(q2.x,q2.y); }
+      cx.closePath();
+      cx.strokeStyle=col; cx.globalAlpha=0.22; cx.lineWidth=1; cx.stroke(); cx.globalAlpha=1;
+    }
+    for(var e3=0;e3<evs.length;e3++){
+      var ev=evs[e3], pp=P(ev.fr,ev.u,rad);
+      var fd2=Math.max(0,1-ev.u/(BARS+0.3));
+      var fl=(steps&&vi!=null)?voiceFlash[vi+'_'+steps[ev.k]]:null;
+      var hot=playing && fl!=null && (t-fl)<0.13 && t>=fl && ev.u<0.5;
+      cx.fillStyle=hot?'#fff6df':col;
+      cx.globalAlpha=(hot?1:(ev.acc?0.9:0.6))*fd2;
+      cx.beginPath(); cx.arc(pp.x,pp.y,(ev.acc?4.4:3)*pp.s*(hot?1.6:1),0,Math.PI*2); cx.fill();
+      cx.globalAlpha=1;
+    }
+  }
+  if(bounce.on){
+    var fig=lastBFig?FIGMAP[lastBFig]:null;
+    if(fig){
+      var sticks=buildBarSticks(fig), frs=[], accs=[];
+      for(var s4=0;s4<sticks.length;s4++){ if(sticks[s4].s==='-') continue; frs.push(s4/sticks.length); accs.push(sticks[s4].a); }
+      thread(frs, accs, null, null, 0.95, (curSide==='B')?'#7eb4c9':'#e0b24e');
+    }
+  } else {
+    var act=[]; voices.forEach(function(v,i3){ if(v.on&&v.k>0) act.push(i3); });
+    act.forEach(function(vi,idx){
+      var v=voices[vi], pat=voicePattern(v), frs2=[], accs2=[], steps2=[];
+      for(var s5=0;s5<v.n;s5++){ if(!pat[s5]) continue; frs2.push(s5/v.n); accs2.push(!!v.acc[s5]); steps2.push(s5); }
+      thread(frs2, accs2, steps2, vi, 0.98-idx*0.16, VCOL[vi]);
+    });
+  }
+}
+
 // ── boot ───────────────────────────────────────────────
 resetPattern(); buildGrid(); buildVoiceUI(); buildKits(); buildCross(); updateSwingHint(); updateLadStatus(); updateStatus();
 var boot=loadStore().last; if(boot) applySnapshot(boot);
 buildCross();
 sizeCircle();
+if(loadStore().viz) setViz(true);
 renderMems();
 })();
 </script>
