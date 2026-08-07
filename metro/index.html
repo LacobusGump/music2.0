@@ -1515,7 +1515,7 @@ function drawCircle(){
 // One bar = one turn. Each voice's polygon extrudes into a twisted ribbon, and
 // voices with different step counts are different gears around the same axis —
 // they only line up where the rhythms actually coincide. Drag to orbit.
-var camYaw=0, camPitch=1.08, vizT=0;
+var camYaw=0, camPitch=1.08, vizT=0, orbitDrift=0;
 function setViz(v){
   viz=v;
   document.body.classList.toggle('vizmode',v);
@@ -1536,7 +1536,8 @@ function drawViz(){
     if(ph<0) ph=0;
   }
   var t=actx?actx.currentTime:0;
-  var yaw=camYaw+vizT*0.07;                          // slow constant orbit — parallax sells the depth
+  if(!playing) orbitDrift+=0.07/60;                  // parallax at rest; dead still while counting —
+  var yaw=camYaw+orbitDrift;                         // one motion at a time is what keeps it readable
   var pitch=camPitch;
   var cyw=Math.cos(yaw), syw=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
   var PITCHZ=1.0, ZOFF=-1.0, CAMD=3.4, F=R*1.5, BARS=3;
@@ -1558,14 +1559,42 @@ function drawViz(){
   cx.beginPath();
   for(var i=0;i<=48;i++){ var q=P(i/48,0,1.22); if(i===0)cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y); }
   cx.stroke();
-  // beat one, marked — the anchor the whole spiral turns around
+  // beat one, marked — it travels with the pattern and meets the needle on the downbeat
   var one=P(0,0,1.42);
   cx.fillStyle='rgba(224,178,78,.85)';
   cx.font='600 11px Futura, "Century Gothic", sans-serif'; cx.textAlign='center';
   cx.fillText('1', one.x, one.y+4);
-  // the click helix — a continuous spiral whose density IS the subdivision
   var perBeat=bounce.on?bounce.count:sub;
   var fineN=beats*perBeat;
+  // the needle — fixed, like a stylus; the groove turns into it
+  var n1=P(ph,0,1.08), n2=P(ph,0,1.40);
+  cx.strokeStyle='rgba(243,212,136,'+(playing?0.9:0.4)+')'; cx.lineWidth=2.2;
+  cx.beginPath(); cx.moveTo(n1.x,n1.y); cx.lineTo(n2.x,n2.y); cx.stroke();
+  var nd=P(ph,0,1.22);
+  cx.fillStyle=playing?'#fff6df':'rgba(243,212,136,.5)';
+  cx.beginPath(); cx.arc(nd.x,nd.y,playing?3.4:2.4,0,Math.PI*2); cx.fill();
+  // the count rail — fixed on the left; the spiral spins, the count stands still
+  var curFine=playing?Math.floor(ph*fineN)%fineN:0;
+  var curBeat=playing?Math.floor(curFine/perBeat):-1;
+  var posIn=curFine%perBeat;
+  var syl=posIn===0?'':(perBeat===2?'&':perBeat===3?['','trip','let'][posIn]:
+          perBeat===4?['','e','&','a'][posIn]:'·');
+  var railStep=Math.min(28, (w*0.55)/Math.max(beats,1));
+  for(var rb=0;rb<beats;rb++){
+    var ry=w/2+(rb-(beats-1)/2)*railStep;
+    var isCur=(rb===curBeat);
+    cx.fillStyle=isCur?'#f3d488':'rgba(143,136,122,.5)';
+    cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
+    cx.textAlign='left';
+    cx.fillText(String(rb+1), 12, ry+(isCur?7:5));
+    if(isCur&&syl){
+      cx.fillStyle='rgba(224,178,78,.75)';
+      cx.font='400 11px Futura, "Century Gothic", sans-serif';
+      cx.fillText(syl, 34, ry+7);
+    }
+  }
+  cx.textAlign='center';
+  // the click helix — a continuous spiral whose density IS the subdivision
   var clickA=clickMute?0.35:1;
   var SAMP=48, totalS=BARS*SAMP, prev=null;
   for(var k4=totalS;k4>=0;k4--){
@@ -1591,12 +1620,13 @@ function drawViz(){
       if(u<-0.15||u>BARS) continue;
       var fade=Math.max(0.15,1-u/(BARS+0.5));
       var pd=P(frac,u,1.22);
-      var lit=playing && Math.abs(u)<0.5/fineN;
+      // smooth strike glow — swells as the dot approaches the needle, no blinking
+      var prox=playing?Math.max(0,1-Math.abs(u)*6):0;
       var acc=(st===2), beatOne=(f===0);
-      cx.fillStyle=(beatOne||acc)?'#e0b24e':(isBeat?'#c9b998':'#6f685c');
-      cx.globalAlpha=(beatOne?0.95:acc?0.85:isBeat?0.7:0.42)*fade*clickA;
+      cx.fillStyle=prox>0.55?'#fff6df':((beatOne||acc)?'#e0b24e':(isBeat?'#c9b998':'#6f685c'));
+      cx.globalAlpha=Math.min(1,(beatOne?0.95:acc?0.85:isBeat?0.7:0.42)*fade*clickA+prox*0.5);
       cx.beginPath();
-      cx.arc(pd.x,pd.y,(beatOne?3.6:acc?3.2:isBeat?2.6:1.6)*pd.s*(lit?1.9:1),0,Math.PI*2);
+      cx.arc(pd.x,pd.y,(beatOne?3.6:acc?3.2:isBeat?2.6:1.6)*pd.s*(1+prox*0.9),0,Math.PI*2);
       cx.fill(); cx.globalAlpha=1;
     }
   }
@@ -1631,9 +1661,11 @@ function drawViz(){
       var fd2=Math.max(0.15,1-ev.u/(BARS+0.5));
       var fl=(steps&&vi!=null)?voiceFlash[vi+'_'+steps[ev.k]]:null;
       var hot=playing && fl!=null && (t-fl)<0.13 && t>=fl && ev.u<0.5;
-      cx.fillStyle=hot?'#fff6df':col;
-      cx.globalAlpha=(hot?1:(ev.acc?0.9:0.6))*fd2;
-      cx.beginPath(); cx.arc(pp.x,pp.y,(ev.acc?4.4:3)*pp.s*(hot?1.6:1),0,Math.PI*2); cx.fill();
+      var prox2=playing?Math.max(0,1-Math.abs(ev.u)*6):0;
+      var boost=Math.max(prox2, hot?1:0);
+      cx.fillStyle=boost>0.55?'#fff6df':col;
+      cx.globalAlpha=Math.min(1,(ev.acc?0.9:0.6)*fd2+boost*0.4);
+      cx.beginPath(); cx.arc(pp.x,pp.y,(ev.acc?4.4:3)*pp.s*(1+boost*0.7),0,Math.PI*2); cx.fill();
       cx.globalAlpha=1;
     }
   }
