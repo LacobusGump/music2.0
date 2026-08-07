@@ -38,9 +38,12 @@ body{
    in its centre; the rings are the rhythm. Everything below serves this. */
 .stage{flex:0 0 auto;display:flex;justify-content:center;padding:2px 0 0;position:relative;}
 .vizbtn{position:absolute;top:2px;right:12px;z-index:3;font-family:inherit;font-size:.55rem;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--faint);background:rgba(23,26,32,.72);border:1px solid var(--edge);border-radius:999px;padding:6px 12px;cursor:pointer;transition:all .2s;}
-.vizbtn:hover{color:var(--dim);}
-.vizbtn[aria-pressed="true"]{color:var(--ember);border-color:rgba(224,178,78,.4);}
+  color:var(--gold);background:rgba(23,26,32,.72);border:1px solid rgba(224,178,78,.35);border-radius:999px;padding:6px 12px;cursor:pointer;transition:all .2s;
+  animation:vizglow 2.8s ease-in-out infinite;}
+@keyframes vizglow{0%,100%{box-shadow:0 0 7px rgba(224,178,78,.16);}50%{box-shadow:0 0 17px rgba(224,178,78,.42);}}
+.vizbtn:hover{color:var(--ember);}
+.vizbtn[aria-pressed="true"]{color:var(--ember);border-color:rgba(224,178,78,.55);}
+@media (prefers-reduced-motion:reduce){.vizbtn{animation:none;}}
 body.vizmode .center{justify-content:flex-start;padding-top:6px;}
 body.vizmode .cbpm{font-size:1.05rem;opacity:.85;}
 body.vizmode .cline{display:none;}
@@ -340,12 +343,16 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
         <span class="dside" id="ladNow" style="width:auto;height:auto;padding:5px 12px;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;">Quarter</span>
         <span class="hint" style="margin:0;" id="ladCd">2 bars each · up, then restart</span>
       </div>
+      <div class="keys c2" style="margin-bottom:10px;">
+        <button class="key on" id="ladKindSubs">Subdivisions<small>qtr → 64th</small></button>
+        <button class="key" id="ladKindCross">Cross-rhythms<small>off → 11 across</small></button>
+      </div>
       <div class="stepline"><label>Bars each</label><button class="step" id="ladRepDn">−</button><span class="stepv" id="ladRepVal">2</span><button class="step" id="ladRepUp">+</button></div>
       <div class="keys c2">
-        <button class="key on" data-mode="wrap">Up, restart<small>qtr → 64th → qtr</small></button>
-        <button class="key" data-mode="bounce">Up &amp; back<small>qtr → 64th → qtr</small></button>
+        <button class="key on" data-mode="wrap">Up, restart<small>climb, then top → bottom</small></button>
+        <button class="key" data-mode="bounce">Up &amp; back<small>climb, then walk back down</small></button>
       </div>
-      <p class="hint">Runs the pulse up through every subdivision — quarter, 8th, triplet, 16th, sextuplet, 32nd, 64th — holding each for the set number of bars. Watch the ring get denser as it climbs.</p>
+      <p class="hint">Climbs a rung every few bars. <b>Subdivisions</b> runs the pulse from quarters up to 64ths. <b>Cross-rhythms</b> climbs from a plain count up through 3, 5, 6, 7, 9, 10 and 11 across the bar — and back to nothing. Watch the shapes change as it goes.</p>
     </div>
   </div>
 
@@ -412,7 +419,9 @@ function voiceStepTime(v, step, barStart, barDur, swung){
 }
 var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true, hands:false,
             bar:0, barTime:0};
-var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'wrap'};   // auto-cycle subdivisions
+var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'wrap', kind:'subs'};   // auto-cycle subdivisions or cross-rhythms
+var LADDER_CROSS=[0,3,5,6,7,9,10,11];               // rung 0 is nothing — it climbs out of and back into silence
+function ladderRungCount(){ return ladder.kind==='cross'?LADDER_CROSS.length:SUBS.length; }
 
 // ── figures for the bounce trainer ──
 // A figure is a stream of notes with sticking + accents. `single` = alternating
@@ -631,6 +640,9 @@ function schedule(){
           flashQ.push({v:vi, step:st, time:vt});
         }
       }
+      // pushed voice-by-voice, so the queue is NOT time-ordered — early hits of a
+      // later voice would hide behind an earlier voice's late hits and never flash
+      flashQ.sort(function(a,b){ return a.time-b.time; });
     }
     var lvl=pattern[i]||0;
     var down=(i%sub)===0;
@@ -648,8 +660,8 @@ function schedule(){
       if(ladder.on){
         if(++ladder.barsDone>=ladder.repeats){
           ladder.barsDone=0;
-          if(ladder.mode==='wrap'){ ladder.idx=(ladder.idx+1)%SUBS.length; }
-          else { if(ladder.idx+ladder.dir<0 || ladder.idx+ladder.dir>=SUBS.length) ladder.dir=-ladder.dir; ladder.idx+=ladder.dir; }
+          if(ladder.mode==='wrap'){ ladder.idx=(ladder.idx+1)%ladderRungCount(); }
+          else { if(ladder.idx+ladder.dir<0 || ladder.idx+ladder.dir>=ladderRungCount()) ladder.dir=-ladder.dir; ladder.idx+=ladder.dir; }
           ladderApply(); cellIndex=0;   // start the new subdivision on a fresh bar
         }
       }
@@ -763,10 +775,10 @@ function updateBounceStatus(e){
 }
 
 // ── visual loop ──
-var nowCell=-1, voiceFlash={}, stickNow=-1;
+var nowCell=-1, voiceFlash={}, voicePulse={}, stickNow=-1;
 function draw(){
   requestAnimationFrame(draw);
-  if(viz) drawViz(); else drawCircle();
+  if(viz===1) drawViz(); else if(viz===2) drawForms(); else drawCircle();
   if(!playing||!actx) return;
   var t=actx.currentTime, changed=false;
   while(visQ.length && visQ[0].time<=t){ nowCell=visQ.shift().cell; changed=true; }
@@ -777,6 +789,7 @@ function draw(){
   while(flashQ.length && flashQ[0].time<=t){
     var fe=flashQ.shift();
     voiceFlash[fe.v+'_'+fe.step]=fe.time;
+    voicePulse[fe.v]=fe.time;                // whole-solid pulse for the forms view
   }
   while(barVisQ.length && barVisQ[0].time<=t){ var bv=barVisQ.shift(); curFeel=bv.feel; curBarStart=bv.time; updateStatus(); }
   while(bounceVisQ.length && bounceVisQ[0].time<=t){
@@ -1076,15 +1089,34 @@ $('drillLadder').onclick=function(){ setDrill('ladder'); };
 })();
 
 // ── subdivision ladder ─────────────────────────────────
-function ladderApply(){                 // point sub at the current rung + refresh grid/UI
+function ladderApply(){                 // point the current rung at sub — or at the cross voice
+  var now=$('ladNow');
+  if(ladder.kind==='cross'){
+    var x=LADDER_CROSS[ladder.idx];
+    if(x===0){ voices[3].on=false; }
+    else { voices[3].on=true; voices[3].k=x; voices[3].n=x; voices[3].rot=0; voices[3].acc={}; }
+    buildCross(); updateStatus();
+    if(now) now.textContent=(x===0?'Off':x+' : '+beats);
+    return;
+  }
   sub=SUBS[ladder.idx].n;
   [].forEach.call($('subs').children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
   resetPattern(); buildGrid(); updateSwingHint(); updateStatus();
-  var now=$('ladNow'); if(now) now.textContent=SUBS[ladder.idx].name;
+  if(now) now.textContent=SUBS[ladder.idx].name;
 }
 function ladderReset(){ ladder.idx=0; ladder.barsDone=0; ladder.dir=1; }
 function updateLadStatus(){ var cd=$('ladCd'); if(!cd) return;
   cd.textContent=ladder.repeats+(ladder.repeats===1?' bar each':' bars each')+' · '+(ladder.mode==='wrap'?'up, then restart':'up & back down'); }
+function setLadKind(k){
+  ladder.kind=k;
+  $('ladKindSubs').classList.toggle('on',k==='subs');
+  $('ladKindCross').classList.toggle('on',k==='cross');
+  ladderReset();
+  if(ladder.on && !playing) ladderApply();
+  updateLadStatus();
+}
+$('ladKindSubs').onclick=function(){ setLadKind('subs'); save(); };
+$('ladKindCross').onclick=function(){ setLadKind('cross'); save(); };
 function setLadRep(v){ ladder.repeats=Math.max(1,Math.min(16,v)); $('ladRepVal').textContent=ladder.repeats; updateLadStatus(); save(); }
 $('ladRepUp').onclick=function(){ setLadRep(ladder.repeats+1); };
 $('ladRepDn').onclick=function(){ setLadRep(ladder.repeats-1); };
@@ -1105,7 +1137,7 @@ function snapshot(){
     swing:{on:swing.on,r:+$('swingR').value,alt:swing.alt,s:swing.straightBars,w:swing.swungBars},
     voices:voices.map(function(v){return {on:v.on,k:v.k,n:v.n,rot:v.rot,snd:v.snd,acc:v.acc};}),
     bounce:{on:bounce.on,c:bounce.count,a:bounce.figA,b:bounce.figB,ba:bounce.barsA,bb:bounce.barsB,v:bounce.voice,h:bounce.hands},
-    ladder:{on:ladder.on,rep:ladder.repeats,mode:ladder.mode}};
+    ladder:{on:ladder.on,rep:ladder.repeats,mode:ladder.mode,kind:ladder.kind}};
 }
 function applySnapshot(s){
   if(!s) return;
@@ -1137,6 +1169,9 @@ function applySnapshot(s){
   $('voiceKey').classList.toggle('on',bounce.voice); $('handKey').classList.toggle('on',bounce.hands);
   // ladder settings
   ladder.repeats=s.ladder.rep; ladder.mode=s.ladder.mode;
+  ladder.kind=s.ladder.kind||'subs';
+  $('ladKindSubs').classList.toggle('on',ladder.kind==='subs');
+  $('ladKindCross').classList.toggle('on',ladder.kind==='cross');
   $('ladRepVal').textContent=ladder.repeats;
   [].forEach.call(document.querySelectorAll('[data-mode]'),function(x){ x.classList.toggle('on',x.dataset.mode===ladder.mode); });
   // rebuild everything that depends on beats/sub
@@ -1195,7 +1230,7 @@ var DEFAULTS={bpm:120,beats:4,sub:4,sound:'wood',vol:75,pattern:null,cm:0,
   swing:{on:false,r:67,alt:false,s:2,w:2},
   voices:[{on:false,k:2,n:8,rot:0,snd:'kick',acc:{}},{on:false,k:2,n:8,rot:2,snd:'snare',acc:{}},{on:false,k:4,n:16,rot:0,snd:'hat',acc:{}},{on:false,k:3,n:3,rot:0,snd:'ping',acc:{}}],
   bounce:{on:false,c:1,a:'8',b:'16',ba:2,bb:2,v:true,h:false},
-  ladder:{on:false,rep:2,mode:'wrap'}};
+  ladder:{on:false,rep:2,mode:'wrap',kind:'subs'}};
 $('resetKey').onclick=function(){
   if(playing) stop();
   applySnapshot(JSON.parse(JSON.stringify(DEFAULTS)));
@@ -1515,14 +1550,59 @@ function drawCircle(){
 // voices with different step counts are different gears around the same axis —
 // they only line up where the rhythms actually coincide. Drag to orbit.
 var camYaw=0, camPitch=1.08, vizT=0, orbitDrift=0;
+var VIZNAMES=['ring','coil','forms'];       // flat time · time as a spring · rhythms as solids
 function setViz(v){
-  viz=v;
-  document.body.classList.toggle('vizmode',v);
-  $('vizBtn').setAttribute('aria-pressed',v?'true':'false');
-  $('vizBtn').textContent=v?'ring':'3D';
-  var st=loadStore(); st.viz=v?1:0; writeStore(st);
+  viz=(v===true)?1:(v|0)%3;                 // old stores saved a boolean
+  document.body.classList.toggle('vizmode',viz>0);
+  $('vizBtn').setAttribute('aria-pressed',viz>0?'true':'false');
+  $('vizBtn').textContent=VIZNAMES[viz];
+  var st=loadStore(); st.viz=viz; writeStore(st);
 }
-$('vizBtn').onclick=function(){ setViz(!viz); };
+$('vizBtn').onclick=function(){ setViz(viz+1); };
+
+// the count rail — fixed on the left; whatever spins, the count stands still
+function drawCountRail(w,ph){
+  var perBeat=bounce.on?bounce.count:sub;
+  var fineN=beats*perBeat;
+  var curFine=playing?Math.floor(ph*fineN)%fineN:0;
+  var curBeat=playing?Math.floor(curFine/perBeat):-1;
+  var posIn=curFine%perBeat;
+  var syl=posIn===0?'':(perBeat===2?'&':perBeat===3?['','trip','let'][posIn]:
+          perBeat===4?['','e','&','a'][posIn]:'·');
+  var railStep=Math.min(28, (w*0.55)/Math.max(beats,1));
+  for(var rb=0;rb<beats;rb++){
+    var ry=w/2+(rb-(beats-1)/2)*railStep;
+    var isCur=(rb===curBeat);
+    cx.fillStyle=isCur?'#f3d488':'rgba(217,190,133,.45)';
+    cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
+    cx.textAlign='left';
+    cx.fillText(String(rb+1), 12, ry+(isCur?7:5));
+    if(isCur&&syl){
+      cx.fillStyle='rgba(224,178,78,.75)';
+      cx.font='400 11px Futura, "Century Gothic", sans-serif';
+      cx.fillText(syl, 34, ry+7);
+    }
+  }
+  cx.textAlign='center';
+}
+// the cross rail — the other count, on the other side. Left hand counts the
+// bar; right hand counts the cross. Both seen, both counted, at the same time.
+function drawCrossRail(w,ph){
+  var cv3=voices[3];
+  if(bounce.on || !cv3 || !cv3.on || cv3.n<2) return;
+  var x=cv3.n;
+  var cur=playing?Math.floor(ph*x)%x:-1;
+  var railStep=Math.min(28,(w*0.55)/x);
+  for(var rb=0;rb<x;rb++){
+    var ry=w/2+(rb-(x-1)/2)*railStep;
+    var isCur=(rb===cur);
+    cx.fillStyle=isCur?'#a9d4e4':'rgba(126,180,201,.45)';
+    cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
+    cx.textAlign='right';
+    cx.fillText(String(rb+1), w-12, ry+(isCur?7:5));
+  }
+  cx.textAlign='center';
+}
 
 function drawViz(){
   var w=sizeCircle(); if(!w) return;
@@ -1572,27 +1652,8 @@ function drawViz(){
   var nd=P(ph,0,1.22);
   cx.fillStyle=playing?'#fff6df':'rgba(243,212,136,.5)';
   cx.beginPath(); cx.arc(nd.x,nd.y,playing?3.4:2.4,0,Math.PI*2); cx.fill();
-  // the count rail — fixed on the left; the spiral spins, the count stands still
-  var curFine=playing?Math.floor(ph*fineN)%fineN:0;
-  var curBeat=playing?Math.floor(curFine/perBeat):-1;
-  var posIn=curFine%perBeat;
-  var syl=posIn===0?'':(perBeat===2?'&':perBeat===3?['','trip','let'][posIn]:
-          perBeat===4?['','e','&','a'][posIn]:'·');
-  var railStep=Math.min(28, (w*0.55)/Math.max(beats,1));
-  for(var rb=0;rb<beats;rb++){
-    var ry=w/2+(rb-(beats-1)/2)*railStep;
-    var isCur=(rb===curBeat);
-    cx.fillStyle=isCur?'#f3d488':'rgba(217,190,133,.45)';   // rail wears the beat colour too
-    cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
-    cx.textAlign='left';
-    cx.fillText(String(rb+1), 12, ry+(isCur?7:5));
-    if(isCur&&syl){
-      cx.fillStyle='rgba(224,178,78,.75)';
-      cx.font='400 11px Futura, "Century Gothic", sans-serif';
-      cx.fillText(syl, 34, ry+7);
-    }
-  }
-  cx.textAlign='center';
+  drawCountRail(w,ph);
+  drawCrossRail(w,ph);
   // the click helix — a continuous spiral whose density IS the subdivision
   var clickA=clickMute?0.35:1;
   var SAMP=48, totalS=BARS*SAMP, prev=null;
@@ -1612,7 +1673,7 @@ function drawViz(){
   // Beats wear the warm count colour; subdivisions sit cool so they never blur.
   var BEATCOL='#d9be85', SUBCOL='#5f6d7a';
   function subAtBar(off){                            // subdivision `off` bars from now
-    if(!ladder.on || bounce.on) return perBeat;
+    if(!ladder.on || bounce.on || ladder.kind!=='subs') return perBeat;
     var idx=ladder.idx, dir=ladder.dir;
     var left=Math.max(1, ladder.repeats-ladder.barsDone);
     while(off>=left){
@@ -1717,12 +1778,129 @@ function drawViz(){
   }
 }
 
+// ── FORMS — every rhythm is a solid ─────────────────────
+// The pattern's polygon extruded into an antiprism: two copies of the rhythm,
+// twisted half a step apart, laced together. Three even hits make an literal
+// octahedron. The count is the cage around everything. It all revolves once
+// per bar through the fixed needle, so a triangle and a square read as
+// different speeds — and they only agree on the downbeat. Idle tumble rates
+// are detuned by 1/φ so the resting motion never quite repeats.
+var PHI=1.6180339887;
+function drawForms(){
+  var w=sizeCircle(); if(!w) return;
+  var R=w/2; cx.clearRect(0,0,w,w);
+  cx.textAlign='center';
+  vizT+=1/60;
+  var barDur=(60/bpm)*beats, ph=0;
+  if(playing && actx && curBarStart>=0){
+    ph=((actx.currentTime-curBarStart)/barDur)%1; if(ph<0) ph=0;
+  }
+  var t=actx?actx.currentTime:0;
+  if(!playing) orbitDrift+=0.05/60;
+  var yaw=camYaw+orbitDrift, pitch=camPitch;
+  var cyw=Math.cos(yaw), syw=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
+  var CAMD=3.6, F=R*1.42;
+  function PRc(x,y,z){
+    var y2=y*cp - z*sp, z2=y*sp + z*cp;
+    var x3=x*cyw + z2*syw, z3=-x*syw + z2*cyw;
+    var d=z3+CAMD; if(d<0.4) d=0.4;
+    return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d};
+  }
+  function line(a,b,col,alpha,lw){
+    cx.strokeStyle=col; cx.globalAlpha=alpha; cx.lineWidth=lw;
+    cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(b.x,b.y); cx.stroke(); cx.globalAlpha=1;
+  }
+  // the cage — the count as architecture; each beat is a pillar
+  var CR=1.28, CH=1.12;
+  var topPts=[], botPts=[];
+  for(var i=0;i<beats;i++){
+    var th=(i/beats-ph)*Math.PI*2 - Math.PI/2;
+    topPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, CH));
+    botPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, -CH));
+  }
+  for(var i2=0;i2<beats;i2++){
+    var nx=(i2+1)%beats;
+    line(topPts[i2],topPts[nx],'#d9be85',.20,1);
+    line(botPts[i2],botPts[nx],'#d9be85',.20,1);
+    var wr=((i2/beats-ph)%1+1)%1, dist=Math.min(wr,1-wr);
+    var prox=playing?Math.max(0,1-dist*beats*2):0;
+    line(botPts[i2],topPts[i2], prox>0.5?'#fff6df':'#d9be85', .18+prox*.75, 1+prox*1.4);
+    cx.fillStyle=(i2===0)?'#e0b24e':'#d9be85';
+    cx.globalAlpha=.5+prox*.5;
+    cx.font=(prox>0.5?'600 13px':'400 10px')+' Futura, "Century Gothic", sans-serif';
+    cx.fillText(String(i2+1), topPts[i2].x, topPts[i2].y-6);
+    cx.globalAlpha=1;
+  }
+  // the needle — fixed; the whole architecture turns through it
+  line(PRc(0,-CR,-CH), PRc(0,-CR,CH), 'rgba(243,212,136,1)', playing?.85:.35, 2.2);
+  // one rhythm, one solid
+  function solidForm(fracs, accs, zc, h, col, pulse, wob){
+    var k=fracs.length; if(!k) return;
+    var rad=0.82, sc=1+pulse*0.22;
+    var twist=Math.PI/k;
+    var ca=Math.cos(wob), sa=Math.sin(wob);
+    function V(fr, dz, extra){
+      var th=(fr-ph)*Math.PI*2 - Math.PI/2 + (extra||0);
+      var x=Math.cos(th)*rad*sc, y=Math.sin(th)*rad*sc, zl=dz*sc;
+      var y3=y*ca - zl*sa, z3=y*sa + zl*ca;       // tumble about the solid's own axis
+      return PRc(x, y3, zc+z3);
+    }
+    var bot=[], top=[];
+    for(var j=0;j<k;j++){ bot.push(V(fracs[j],-h,0)); top.push(V(fracs[j],h,twist)); }
+    for(var j2=0;j2<k;j2++){
+      var nj=(j2+1)%k;
+      line(bot[j2],bot[nj],col,.5+pulse*.3,1.2);
+      line(top[j2],top[nj],col,.5+pulse*.3,1.2);
+      line(bot[j2],top[j2],col,.30+pulse*.3,1);   // the lacing
+      line(top[j2],bot[nj],col,.30+pulse*.3,1);
+    }
+    for(var j3=0;j3<k;j3++){
+      cx.fillStyle=pulse>0.5?'#fff6df':col;
+      cx.globalAlpha=accs[j3]?.95:.65;
+      cx.beginPath(); cx.arc(bot[j3].x,bot[j3].y,(accs[j3]?4:2.8)*bot[j3].s*(1+pulse*.5),0,Math.PI*2); cx.fill();
+      cx.globalAlpha=1;
+    }
+  }
+  function pulseOf(vi){
+    var pl=voicePulse[vi];
+    return (playing && pl!=null && (t-pl)<0.16 && t>=pl) ? 1-(t-pl)/0.16 : 0;
+  }
+  if(bounce.on){
+    var fig=lastBFig?FIGMAP[lastBFig]:null;
+    if(fig){
+      var sticks=buildBarSticks(fig), fr3=[], ac3=[];
+      for(var s6=0;s6<sticks.length;s6++){ if(sticks[s6].s==='-') continue; fr3.push(s6/sticks.length); ac3.push(sticks[s6].a); }
+      solidForm(fr3, ac3, 0, 0.5, (curSide==='B')?'#7eb4c9':'#e0b24e', 0,
+                Math.sin(vizT*0.23)*(playing?0.06:0.24));
+    }
+  } else {
+    var act=[]; voices.forEach(function(v,i4){ if(v.on&&v.k>0) act.push(i4); });
+    if(!act.length){
+      // no layers — the count itself is the solid
+      var frC=[], acC=[];
+      for(var cb=0;cb<beats;cb++){ frC.push(cb/beats); acC.push(cb===0); }
+      solidForm(frC, acC, 0, 0.55, '#d9be85', 0, Math.sin(vizT*0.21)*(playing?0.06:0.26));
+    } else {
+      var span=Math.min(0.95, 0.34*act.length);
+      act.forEach(function(vi,idx){
+        var v=voices[vi], pat=voicePattern(v), fr4=[], ac4=[];
+        for(var s7=0;s7<v.n;s7++){ if(!pat[s7]) continue; fr4.push(s7/v.n); ac4.push(!!v.acc[s7]); }
+        var zc=act.length===1?0:(idx/(act.length-1)-0.5)*2*span;
+        var wob=Math.sin(vizT*(0.21*Math.pow(PHI,-idx)+0.04))*(playing?0.07:0.27);
+        solidForm(fr4, ac4, zc, Math.min(0.4, 0.9/act.length), VCOL[vi], pulseOf(vi), wob);
+      });
+    }
+  }
+  drawCountRail(w,ph);
+  drawCrossRail(w,ph);
+}
+
 // ── boot ───────────────────────────────────────────────
 resetPattern(); buildGrid(); buildVoiceUI(); buildKits(); buildCross(); updateSwingHint(); updateLadStatus(); updateStatus();
 var boot=loadStore().last; if(boot) applySnapshot(boot);
 buildCross();
 sizeCircle();
-if(loadStore().viz) setViz(true);
+if(loadStore().viz) setViz(loadStore().viz);
 renderMems();
 })();
 </script>
