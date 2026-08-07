@@ -1467,7 +1467,7 @@ function drawCircle(){
     if(!drag) return;
     if(drag.mode==='cam'){
       camYaw=drag.yaw0+(e.clientX-drag.x0)*0.006;
-      camPitch=Math.max(0.05, Math.min(1.25, drag.pitch0+(e.clientY-drag.y0)*0.004));
+      camPitch=Math.max(0.05, Math.min(1.5, drag.pitch0+(e.clientY-drag.y0)*0.004));
       return;
     }
     if(Math.abs(e.clientX-drag.x0)+Math.abs(e.clientY-drag.y0)>10) drag.moved=true;
@@ -1515,7 +1515,7 @@ function drawCircle(){
 // One bar = one turn. Each voice's polygon extrudes into a twisted ribbon, and
 // voices with different step counts are different gears around the same axis —
 // they only line up where the rhythms actually coincide. Drag to orbit.
-var camYaw=0, camPitch=0.42, vizT=0;
+var camYaw=0, camPitch=1.08, vizT=0;
 function setViz(v){
   viz=v;
   document.body.classList.toggle('vizmode',v);
@@ -1536,56 +1536,68 @@ function drawViz(){
     if(ph<0) ph=0;
   }
   var t=actx?actx.currentTime:0;
-  var yaw=camYaw+Math.sin(vizT*0.10)*0.16;           // gentle breathing even at rest
+  var yaw=camYaw+vizT*0.07;                          // slow constant orbit — parallax sells the depth
   var pitch=camPitch;
   var cyw=Math.cos(yaw), syw=Math.sin(yaw), cp=Math.cos(pitch), sp=Math.sin(pitch);
-  var PITCHZ=1.25, CAMD=3.4, F=R*1.5, BARS=3;
+  var PITCHZ=1.0, ZOFF=-1.0, CAMD=3.4, F=R*1.5, BARS=3;
   function P(frac,u,rad){
     // frac: position in the cycle 0..1 · u: bars from now · rad: helix radius
     var th=(frac-ph)*Math.PI*2 - Math.PI/2;
-    var x=Math.cos(th)*rad, y=Math.sin(th)*rad, z=u*PITCHZ;
+    var x=Math.cos(th)*rad, y=Math.sin(th)*rad, z=u*PITCHZ+ZOFF;
     var y2=y*cp - z*sp,  z2=y*sp + z*cp;             // tilt
     var x3=x*cyw + z2*syw, z3=-x*syw + z2*cyw;       // orbit
     var d=z3+CAMD; if(d<0.4) d=0.4;
     return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d};
   }
+  // the spine — the axis time runs along
+  var c0=P(0,0,0), cf=P(0,BARS,0);
+  cx.strokeStyle='rgba(198,180,152,.14)'; cx.lineWidth=1;
+  cx.beginPath(); cx.moveTo(c0.x,c0.y); cx.lineTo(cf.x,cf.y); cx.stroke();
   // the now-ring — the plane the sound is on
-  cx.strokeStyle='rgba(243,212,136,.30)'; cx.lineWidth=1;
+  cx.strokeStyle='rgba(243,212,136,.34)'; cx.lineWidth=1.2;
   cx.beginPath();
   for(var i=0;i<=48;i++){ var q=P(i/48,0,1.22); if(i===0)cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y); }
   cx.stroke();
-  // the click helix — beats spiralling away into the coming bars
-  var clickA=clickMute?0.3:1;
-  var prev=null;
-  for(var b=BARS;b>=0;b--){
-    for(var i2=beats-1;i2>=0;i2--){
-      var frac=i2/beats, u=b+frac-ph;
-      if(u<-0.15||u>BARS) continue;
-      var fade=Math.max(0,1-u/(BARS+0.3));
-      var p=P(frac,u,1.22);
-      if(prev){
-        cx.strokeStyle='rgba(198,180,152,1)'; cx.globalAlpha=0.10*fade*clickA; cx.lineWidth=1;
-        cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke(); cx.globalAlpha=1;
-      }
-      prev=p;
-      var lit=playing && Math.abs(u)<0.03;
-      cx.fillStyle=(i2===0)?'#e0b24e':'#8f887a';
-      cx.globalAlpha=(i2===0?0.9:0.55)*fade*clickA;
-      cx.beginPath(); cx.arc(p.x,p.y,(i2===0?3.4:2.3)*p.s*(lit?1.9:1),0,Math.PI*2); cx.fill();
-      cx.globalAlpha=1;
+  // beat one, marked — the anchor the whole spiral turns around
+  var one=P(0,0,1.42);
+  cx.fillStyle='rgba(224,178,78,.85)';
+  cx.font='600 11px Futura, "Century Gothic", sans-serif'; cx.textAlign='center';
+  cx.fillText('1', one.x, one.y+4);
+  // the click helix — a continuous spiral whose density IS the subdivision
+  var perBeat=bounce.on?bounce.count:sub;
+  var fineN=beats*perBeat;
+  var clickA=clickMute?0.35:1;
+  var SAMP=48, totalS=BARS*SAMP, prev=null;
+  for(var k4=totalS;k4>=0;k4--){
+    var us=k4/SAMP-ph;
+    if(us<-0.05){ break; }
+    var p=P((k4%SAMP)/SAMP,us,1.22);
+    if(prev){
+      var fd=Math.max(0.12,1-us/(BARS+0.5));
+      cx.strokeStyle='rgba(198,180,152,1)'; cx.globalAlpha=0.15*fd*clickA; cx.lineWidth=1;
+      cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke(); cx.globalAlpha=1;
     }
+    prev=p;
   }
-  // accented click cells (beyond the beats) as small gold marks
-  if(!bounce.on && beats*sub<=48){
-    for(var c2=0;c2<beats*sub;c2++){
-      if(pattern[c2]!==2 || c2%sub===0) continue;
-      for(var b2=0;b2<=BARS;b2++){
-        var u2=b2+c2/(beats*sub)-ph; if(u2<-0.15||u2>BARS) continue;
-        var f2=Math.max(0,1-u2/(BARS+0.3));
-        var p2=P(c2/(beats*sub),u2,1.22);
-        cx.fillStyle='#e0b24e'; cx.globalAlpha=0.5*f2*clickA;
-        cx.beginPath(); cx.arc(p2.x,p2.y,1.8*p2.s,0,Math.PI*2); cx.fill(); cx.globalAlpha=1;
-      }
+  // tick dots at the actual subdivision — change the subdivision, change the spiral
+  var showDots=fineN<=96;
+  for(var b=BARS;b>=0;b--){
+    for(var f=fineN-1;f>=0;f--){
+      var isBeat=(f%perBeat)===0;
+      if(!showDots && !isBeat) continue;
+      var st=bounce.on ? (isBeat?2:1) : (pattern[f]==null?1:pattern[f]);
+      if(st===0) continue;                           // muted cells leave a gap in the spiral
+      var frac=f/fineN, u=b+frac-ph;
+      if(u<-0.15||u>BARS) continue;
+      var fade=Math.max(0.15,1-u/(BARS+0.5));
+      var pd=P(frac,u,1.22);
+      var lit=playing && Math.abs(u)<0.5/fineN;
+      var acc=(st===2), beatOne=(f===0);
+      cx.fillStyle=(beatOne||acc)?'#e0b24e':(isBeat?'#c9b998':'#6f685c');
+      cx.globalAlpha=(beatOne?0.95:acc?0.85:isBeat?0.7:0.42)*fade*clickA;
+      cx.beginPath();
+      cx.arc(pd.x,pd.y,(beatOne?3.6:acc?3.2:isBeat?2.6:1.6)*pd.s*(lit?1.9:1),0,Math.PI*2);
+      cx.fill(); cx.globalAlpha=1;
     }
   }
   // one voice = one helical thread; its polygon twists forward through time
@@ -1603,7 +1615,7 @@ function drawViz(){
     evs.sort(function(a,b){ return a.u-b.u; });
     for(var e2=evs.length-1;e2>0;e2--){
       var a2=P(evs[e2].fr,evs[e2].u,rad), b4=P(evs[e2-1].fr,evs[e2-1].u,rad);
-      var fd=Math.max(0,1-evs[e2].u/(BARS+0.3));
+      var fd=Math.max(0.12,1-evs[e2].u/(BARS+0.5));
       cx.strokeStyle=col; cx.globalAlpha=0.45*fd; cx.lineWidth=1.3*a2.s+0.3;
       cx.beginPath(); cx.moveTo(b4.x,b4.y); cx.lineTo(a2.x,a2.y); cx.stroke(); cx.globalAlpha=1;
     }
@@ -1616,7 +1628,7 @@ function drawViz(){
     }
     for(var e3=0;e3<evs.length;e3++){
       var ev=evs[e3], pp=P(ev.fr,ev.u,rad);
-      var fd2=Math.max(0,1-ev.u/(BARS+0.3));
+      var fd2=Math.max(0.15,1-ev.u/(BARS+0.5));
       var fl=(steps&&vi!=null)?voiceFlash[vi+'_'+steps[ev.k]]:null;
       var hot=playing && fl!=null && (t-fl)<0.13 && t>=fl && ev.u<0.5;
       cx.fillStyle=hot?'#fff6df':col;
