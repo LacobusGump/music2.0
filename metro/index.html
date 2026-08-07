@@ -306,8 +306,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
       <h2>Cross-rhythm — evenly across the bar</h2>
       <div class="keys" id="crossKeys"></div>
     </div>
-    <p class="hint">Each layer lays <b>k</b> hits across <b>n</b> steps of the bar, spaced as evenly as the maths allows — a Euclidean rhythm, which is what nearly every traditional groove turns out to be. On the circle each layer is a ring, and its hits draw a shape. <b>Drag a ring to turn it</b> — the shape doesn't change, where it lands does. A snare at k2/n8 sits on 1 and 3; turned by 2 it's the backbeat. Tap a dot to accent it.</p>
-    <div id="voiceEditors"></div>
+    <p class="hint">Each layer lays its hits across the bar as evenly as the maths allows — a Euclidean rhythm, which is what nearly every traditional groove turns out to be. On the circle each layer is a ring, and its hits draw a shape. <b>Drag a ring to turn it</b> — the shape doesn't change, where it lands does. Tap a dot to accent it. Pick a kit below to load the layers.</p>
     <div class="sect">
       <h2>Kits &amp; patterns</h2>
       <div class="keys c2" id="kitKeys"></div>
@@ -1280,7 +1279,7 @@ function buildKits(){
 }
 
 // ── cross-rhythm: n even pulses across the bar (voice 4) ─
-var CROSS=[0,3,5,7];
+var CROSS=[0,3,5,6,7,9,10,11];
 function buildCross(){
   var host=$('crossKeys'); if(!host) return;
   host.innerHTML='';
@@ -1583,7 +1582,7 @@ function drawViz(){
   for(var rb=0;rb<beats;rb++){
     var ry=w/2+(rb-(beats-1)/2)*railStep;
     var isCur=(rb===curBeat);
-    cx.fillStyle=isCur?'#f3d488':'rgba(143,136,122,.5)';
+    cx.fillStyle=isCur?'#f3d488':'rgba(217,190,133,.45)';   // rail wears the beat colour too
     cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
     cx.textAlign='left';
     cx.fillText(String(rb+1), 12, ry+(isCur?7:5));
@@ -1608,26 +1607,58 @@ function drawViz(){
     }
     prev=p;
   }
-  // tick dots at the actual subdivision — change the subdivision, change the spiral
-  var showDots=fineN<=96;
+  // tick dots — each coming turn is drawn at the density THAT bar will really
+  // have, so a ladder climb thickens the spiral upstream before it arrives.
+  // Beats wear the warm count colour; subdivisions sit cool so they never blur.
+  var BEATCOL='#d9be85', SUBCOL='#5f6d7a';
+  function subAtBar(off){                            // subdivision `off` bars from now
+    if(!ladder.on || bounce.on) return perBeat;
+    var idx=ladder.idx, dir=ladder.dir;
+    var left=Math.max(1, ladder.repeats-ladder.barsDone);
+    while(off>=left){
+      off-=left; left=ladder.repeats;
+      if(ladder.mode==='wrap') idx=(idx+1)%SUBS.length;
+      else { if(idx+dir<0 || idx+dir>=SUBS.length) dir=-dir; idx+=dir; }
+    }
+    return SUBS[idx].n;
+  }
   for(var b=BARS;b>=0;b--){
-    for(var f=fineN-1;f>=0;f--){
-      var isBeat=(f%perBeat)===0;
+    var pb=bounce.on?bounce.count:subAtBar(b);
+    var fN=beats*pb, sameGrid=(pb===perBeat);
+    var showDots=fN<=96;
+    for(var f=fN-1;f>=0;f--){
+      var isBeat=(f%pb)===0;
       if(!showDots && !isBeat) continue;
-      var st=bounce.on ? (isBeat?2:1) : (pattern[f]==null?1:pattern[f]);
+      var st;
+      if(bounce.on) st=isBeat?2:1;
+      else if(sameGrid) st=(pattern[f]==null?1:pattern[f]);
+      else st=(f===0?2:1);                           // future rung — fresh grid, one accented
       if(st===0) continue;                           // muted cells leave a gap in the spiral
-      var frac=f/fineN, u=b+frac-ph;
+      var frac=f/fN, u=b+frac-ph;
       if(u<-0.15||u>BARS) continue;
       var fade=Math.max(0.15,1-u/(BARS+0.5));
       var pd=P(frac,u,1.22);
       // smooth strike glow — swells as the dot approaches the needle, no blinking
       var prox=playing?Math.max(0,1-Math.abs(u)*6):0;
       var acc=(st===2), beatOne=(f===0);
-      cx.fillStyle=prox>0.55?'#fff6df':((beatOne||acc)?'#e0b24e':(isBeat?'#c9b998':'#6f685c'));
-      cx.globalAlpha=Math.min(1,(beatOne?0.95:acc?0.85:isBeat?0.7:0.42)*fade*clickA+prox*0.5);
+      cx.fillStyle=prox>0.55?'#fff6df':((beatOne||acc)?'#e0b24e':(isBeat?BEATCOL:SUBCOL));
+      cx.globalAlpha=Math.min(1,(beatOne?0.95:acc?0.85:isBeat?0.75:0.45)*fade*clickA+prox*0.5);
       cx.beginPath();
-      cx.arc(pd.x,pd.y,(beatOne?3.6:acc?3.2:isBeat?2.6:1.6)*pd.s*(1+prox*0.9),0,Math.PI*2);
+      cx.arc(pd.x,pd.y,(beatOne?3.6:acc?3.2:isBeat?2.6:1.5)*pd.s*(1+prox*0.9),0,Math.PI*2);
       cx.fill(); cx.globalAlpha=1;
+    }
+    // the count, written on the spiral itself — every turn carries its 1 2 3 4
+    for(var nb2=0;nb2<beats;nb2++){
+      var un=b+nb2/beats-ph;
+      if(un<-0.15||un>BARS) continue;
+      var fn2=Math.max(0.15,1-un/(BARS+0.5));
+      var pn=P(nb2/beats,un,1.36);
+      var isNow=playing&&Math.abs(un)<0.5/beats;
+      cx.fillStyle=isNow?'#f3d488':BEATCOL;
+      cx.globalAlpha=(isNow?1:(b===0?0.8:0.45))*fn2*clickA;
+      cx.font=(isNow?'600 12px':'400 9px')+' Futura, "Century Gothic", sans-serif';
+      cx.fillText(String(nb2+1), pn.x, pn.y+3);
+      cx.globalAlpha=1;
     }
   }
   // one voice = one helical thread; its polygon twists forward through time
