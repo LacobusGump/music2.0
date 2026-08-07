@@ -1593,10 +1593,14 @@ function drawCrossRail(w,ph){
   var x=cv3.n;
   var cur=playing?Math.floor(ph*x)%x:-1;
   var railStep=Math.min(28,(w*0.55)/x);
+  // in forms the cross wears its golden-angle colour — the rail matches its shape
+  var hue=(viz===2)?hueOf(x,3*24):null;
   for(var rb=0;rb<x;rb++){
     var ry=w/2+(rb-(x-1)/2)*railStep;
     var isCur=(rb===cur);
-    cx.fillStyle=isCur?'#a9d4e4':'rgba(126,180,201,.45)';
+    cx.fillStyle=hue!=null
+      ? 'hsla('+hue.toFixed(1)+',64%,'+(isCur?72:58)+'%,'+(isCur?1:.5)+')'
+      : (isCur?'#a9d4e4':'rgba(126,180,201,.45)');
     cx.font=(isCur?'600 ':'300 ')+(isCur?20:13)+'px Futura, "Century Gothic", sans-serif';
     cx.textAlign='right';
     cx.fillText(String(rb+1), w-12, ry+(isCur?7:5));
@@ -1778,14 +1782,19 @@ function drawViz(){
   }
 }
 
-// ── FORMS — every rhythm is a solid ─────────────────────
-// The pattern's polygon extruded into an antiprism: two copies of the rhythm,
-// twisted half a step apart, laced together. Three even hits make an literal
-// octahedron. The count is the cage around everything. It all revolves once
-// per bar through the fixed needle, so a triangle and a square read as
-// different speeds — and they only agree on the downbeat. Idle tumble rates
-// are detuned by 1/φ so the resting motion never quite repeats.
+// ── FORMS — the rhythm stack as solids ──────────────────
+// Every layer of time gets a body. The beats are the cage, with cube-true
+// proportions (height = edge length, so 4/4 is literally a cube and 5/4 a
+// pentagonal drum). The subdivision is a gear-ring spinning at the base. Each
+// voice is its pattern's polygon extruded into a faced antiprism — three even
+// hits make a literal octahedron. Everything revolves once per bar on one
+// shared axis through the fixed needle, agreeing only on the downbeat.
+// Colors come from the golden angle: hue = count x 137.5 degrees — one color
+// per number, never repeating, the same spacing law as sunflower seeds. Idle
+// tumble is detuned by 1/φ so the resting motion never loops.
 var PHI=1.6180339887;
+function hueOf(n,off){ return ((n*137.508)+200+(off||0))%360; }
+function colOf(n,off,l,a){ return 'hsla('+hueOf(n,off).toFixed(1)+',64%,'+(l||62)+'%,'+(a==null?1:a)+')'; }
 function drawForms(){
   var w=sizeCircle(); if(!w) return;
   var R=w/2; cx.clearRect(0,0,w,w);
@@ -1804,58 +1813,137 @@ function drawForms(){
     var y2=y*cp - z*sp, z2=y*sp + z*cp;
     var x3=x*cyw + z2*syw, z3=-x*syw + z2*cyw;
     var d=z3+CAMD; if(d<0.4) d=0.4;
-    return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d};
+    return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d, zz:z3};
   }
   function line(a,b,col,alpha,lw){
     cx.strokeStyle=col; cx.globalAlpha=alpha; cx.lineWidth=lw;
     cx.beginPath(); cx.moveTo(a.x,a.y); cx.lineTo(b.x,b.y); cx.stroke(); cx.globalAlpha=1;
   }
-  // the cage — the count as architecture; each beat is a pillar
-  var CR=1.28, CH=1.12;
+  function glowline(a,b,col,alpha,lw){
+    line(a,b,col,alpha*0.16,lw*3.2);              // halo pass
+    line(a,b,col,alpha,lw);                        // core pass
+  }
+  // studio light behind the stack
+  var bg=cx.createRadialGradient(R,R*0.92,0,R,R*0.92,R*1.12);
+  bg.addColorStop(0,'rgba(255,240,205,0.05)'); bg.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=bg; cx.fillRect(0,0,w,w);
+  // the cage — the count, in true proportion: height equals edge length
+  var CR=1.26;
+  var edge=2*CR*Math.sin(Math.PI/Math.max(beats,2));
+  var CH=Math.max(0.55, Math.min(1.15, edge*0.62));
   var topPts=[], botPts=[];
   for(var i=0;i<beats;i++){
     var th=(i/beats-ph)*Math.PI*2 - Math.PI/2;
     topPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, CH));
     botPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, -CH));
   }
+  // floor pool the whole machine stands in
+  cx.beginPath();
+  for(var fp=0;fp<=40;fp++){
+    var fa=(fp/40)*Math.PI*2;
+    var q=PRc(Math.cos(fa)*CR*1.14, Math.sin(fa)*CR*1.14, -CH-0.04);
+    if(fp===0) cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y);
+  }
+  cx.closePath();
+  cx.fillStyle='rgba(224,178,78,0.05)'; cx.fill();
+  cx.strokeStyle='rgba(224,178,78,0.14)'; cx.lineWidth=1; cx.stroke();
   for(var i2=0;i2<beats;i2++){
     var nx=(i2+1)%beats;
-    line(topPts[i2],topPts[nx],'#d9be85',.20,1);
-    line(botPts[i2],botPts[nx],'#d9be85',.20,1);
+    line(topPts[i2],topPts[nx],'#d9be85',.22,1);
+    line(botPts[i2],botPts[nx],'#d9be85',.22,1);
     var wr=((i2/beats-ph)%1+1)%1, dist=Math.min(wr,1-wr);
     var prox=playing?Math.max(0,1-dist*beats*2):0;
-    line(botPts[i2],topPts[i2], prox>0.5?'#fff6df':'#d9be85', .18+prox*.75, 1+prox*1.4);
+    glowline(botPts[i2],topPts[i2], prox>0.5?'#fff6df':'#d9be85', .20+prox*.7, 1+prox*1.3);
     cx.fillStyle=(i2===0)?'#e0b24e':'#d9be85';
     cx.globalAlpha=.5+prox*.5;
     cx.font=(prox>0.5?'600 13px':'400 10px')+' Futura, "Century Gothic", sans-serif';
     cx.fillText(String(i2+1), topPts[i2].x, topPts[i2].y-6);
     cx.globalAlpha=1;
   }
-  // the needle — fixed; the whole architecture turns through it
-  line(PRc(0,-CR,-CH), PRc(0,-CR,CH), 'rgba(243,212,136,1)', playing?.85:.35, 2.2);
-  // one rhythm, one solid
-  function solidForm(fracs, accs, zc, h, col, pulse, wob){
+  // the needle — fixed; the whole machine turns through it
+  glowline(PRc(0,-CR,-CH), PRc(0,-CR,CH), '#f3d488', playing?.8:.35, 1.8);
+  // the subdivision — a gear spinning at the base of the stack
+  if(!bounce.on && sub>1){
+    var fineN=beats*sub, gz=-CH*0.62, gr=1.02;
+    var gcol=colOf(sub,0), gstep=fineN>96?sub:1;
+    cx.beginPath();
+    for(var gp=0;gp<=48;gp++){
+      var ga=(gp/48)*Math.PI*2;
+      var gq=PRc(Math.cos(ga)*gr, Math.sin(ga)*gr, gz);
+      if(gp===0) cx.moveTo(gq.x,gq.y); else cx.lineTo(gq.x,gq.y);
+    }
+    cx.strokeStyle=gcol; cx.globalAlpha=.20; cx.lineWidth=1; cx.stroke(); cx.globalAlpha=1;
+    for(var gt=0;gt<fineN;gt+=gstep){
+      var gth=(gt/fineN-ph)*Math.PI*2 - Math.PI/2;
+      var gq2=PRc(Math.cos(gth)*gr, Math.sin(gth)*gr, gz);
+      var gwr=((gt/fineN-ph)%1+1)%1, gd=Math.min(gwr,1-gwr);
+      var gpx=playing?Math.max(0,1-gd*fineN*2):0;
+      var onBeat=(gt%sub)===0;
+      cx.fillStyle=gpx>0.5?'#fff6df':gcol;
+      cx.globalAlpha=(onBeat?.75:.5)+gpx*.4;
+      cx.beginPath(); cx.arc(gq2.x,gq2.y,(onBeat?2.4:1.7)*gq2.s*(1+gpx*.8),0,Math.PI*2); cx.fill();
+      cx.globalAlpha=1;
+    }
+  }
+  // one rhythm, one solid — faced antiprism up to 12 vertices, beaded ring past that
+  function solidForm(fracs, accs, zc, h, hue, brand, pulse, wob){
     var k=fracs.length; if(!k) return;
-    var rad=0.82, sc=1+pulse*0.22;
-    var twist=Math.PI/k;
+    var rad=0.80, sc=1+pulse*0.20;
+    var lineCol=brand||colOf(0,hue,64), fillLite, fillDark;
+    if(brand){ fillLite='rgba(224,178,78,0.10)'; fillDark='rgba(224,178,78,0.05)'; }
+    else { fillLite='hsla('+hue.toFixed(1)+',70%,55%,0.13)'; fillDark='hsla('+hue.toFixed(1)+',70%,42%,0.07)'; }
+    if(!brand) lineCol='hsla('+hue.toFixed(1)+',64%,62%,1)';
     var ca=Math.cos(wob), sa=Math.sin(wob);
     function V(fr, dz, extra){
       var th=(fr-ph)*Math.PI*2 - Math.PI/2 + (extra||0);
       var x=Math.cos(th)*rad*sc, y=Math.sin(th)*rad*sc, zl=dz*sc;
-      var y3=y*ca - zl*sa, z3=y*sa + zl*ca;       // tumble about the solid's own axis
+      var y3=y*ca - zl*sa, z3=y*sa + zl*ca;
       return PRc(x, y3, zc+z3);
     }
+    if(k>12){                                       // dense pattern — a beaded ring
+      var pv=null, first=null;
+      for(var jd=0;jd<k;jd++){
+        var pq=V(fracs[jd],0,0);
+        if(pv) line(pv,pq,lineCol,.35+pulse*.3,1);
+        else first=pq;
+        pv=pq;
+      }
+      if(pv&&first) line(pv,first,lineCol,.35+pulse*.3,1);
+      for(var jb=0;jb<k;jb++){
+        var bq=V(fracs[jb],0,0);
+        cx.fillStyle=pulse>0.5?'#fff6df':lineCol;
+        cx.globalAlpha=accs[jb]?.95:.55;
+        cx.beginPath(); cx.arc(bq.x,bq.y,(accs[jb]?3.4:2.2)*bq.s*(1+pulse*.5),0,Math.PI*2); cx.fill();
+        cx.globalAlpha=1;
+      }
+      return;
+    }
+    var twist=Math.PI/k;
     var bot=[], top=[];
     for(var j=0;j<k;j++){ bot.push(V(fracs[j],-h,0)); top.push(V(fracs[j],h,twist)); }
+    // faces, painter-sorted far to near — the glass the solid is made of
+    var faces=[];
+    for(var jf=0;jf<k;jf++){
+      var nj2=(jf+1)%k;
+      faces.push({p:[bot[jf],top[jf],bot[nj2]], zz:(bot[jf].zz+top[jf].zz+bot[nj2].zz)/3, up:false});
+      faces.push({p:[top[jf],bot[nj2],top[nj2]], zz:(top[jf].zz+bot[nj2].zz+top[nj2].zz)/3, up:true});
+    }
+    faces.sort(function(a,b){ return b.zz-a.zz; });
+    for(var ff=0;ff<faces.length;ff++){
+      var fc=faces[ff];
+      cx.beginPath(); cx.moveTo(fc.p[0].x,fc.p[0].y); cx.lineTo(fc.p[1].x,fc.p[1].y); cx.lineTo(fc.p[2].x,fc.p[2].y);
+      cx.closePath();
+      cx.fillStyle=fc.up?fillLite:fillDark; cx.fill();
+    }
     for(var j2=0;j2<k;j2++){
       var nj=(j2+1)%k;
-      line(bot[j2],bot[nj],col,.5+pulse*.3,1.2);
-      line(top[j2],top[nj],col,.5+pulse*.3,1.2);
-      line(bot[j2],top[j2],col,.30+pulse*.3,1);   // the lacing
-      line(top[j2],bot[nj],col,.30+pulse*.3,1);
+      glowline(bot[j2],bot[nj],lineCol,.55+pulse*.3,1.2);
+      glowline(top[j2],top[nj],lineCol,.55+pulse*.3,1.2);
+      line(bot[j2],top[j2],lineCol,.30+pulse*.3,1);
+      line(top[j2],bot[nj],lineCol,.30+pulse*.3,1);
     }
     for(var j3=0;j3<k;j3++){
-      cx.fillStyle=pulse>0.5?'#fff6df':col;
+      cx.fillStyle=pulse>0.5?'#fff6df':lineCol;
       cx.globalAlpha=accs[j3]?.95:.65;
       cx.beginPath(); cx.arc(bot[j3].x,bot[j3].y,(accs[j3]?4:2.8)*bot[j3].s*(1+pulse*.5),0,Math.PI*2); cx.fill();
       cx.globalAlpha=1;
@@ -1870,24 +1958,25 @@ function drawForms(){
     if(fig){
       var sticks=buildBarSticks(fig), fr3=[], ac3=[];
       for(var s6=0;s6<sticks.length;s6++){ if(sticks[s6].s==='-') continue; fr3.push(s6/sticks.length); ac3.push(sticks[s6].a); }
-      solidForm(fr3, ac3, 0, 0.5, (curSide==='B')?'#7eb4c9':'#e0b24e', 0,
+      solidForm(fr3, ac3, 0, 0.5, 0, (curSide==='B')?'#7eb4c9':'#e0b24e', 0,
                 Math.sin(vizT*0.23)*(playing?0.06:0.24));
     }
   } else {
     var act=[]; voices.forEach(function(v,i4){ if(v.on&&v.k>0) act.push(i4); });
     if(!act.length){
-      // no layers — the count itself is the solid
+      // no layers — the count itself is the solid, in the house gold
       var frC=[], acC=[];
       for(var cb=0;cb<beats;cb++){ frC.push(cb/beats); acC.push(cb===0); }
-      solidForm(frC, acC, 0, 0.55, '#d9be85', 0, Math.sin(vizT*0.21)*(playing?0.06:0.26));
+      solidForm(frC, acC, 0, Math.max(0.3,Math.min(0.6,edge*0.35)), 0, '#d9be85', 0,
+                Math.sin(vizT*0.21)*(playing?0.06:0.26));
     } else {
-      var span=Math.min(0.95, 0.34*act.length);
+      var span=Math.min(0.85, 0.32*act.length);
       act.forEach(function(vi,idx){
         var v=voices[vi], pat=voicePattern(v), fr4=[], ac4=[];
         for(var s7=0;s7<v.n;s7++){ if(!pat[s7]) continue; fr4.push(s7/v.n); ac4.push(!!v.acc[s7]); }
         var zc=act.length===1?0:(idx/(act.length-1)-0.5)*2*span;
         var wob=Math.sin(vizT*(0.21*Math.pow(PHI,-idx)+0.04))*(playing?0.07:0.27);
-        solidForm(fr4, ac4, zc, Math.min(0.4, 0.9/act.length), VCOL[vi], pulseOf(vi), wob);
+        solidForm(fr4, ac4, zc, Math.min(0.38, 0.85/act.length), hueOf(v.n, vi*24), null, pulseOf(vi), wob);
       });
     }
   }
