@@ -44,7 +44,14 @@ body{
 .vizbtn:hover{color:var(--ember);}
 .vizbtn[aria-pressed="true"]{color:var(--ember);border-color:rgba(224,178,78,.55);}
 @media (prefers-reduced-motion:reduce){.vizbtn{animation:none;}}
+/* the sound key rides under the viz key — one tap cycles the five voices */
+.sndbtn{position:absolute;top:36px;right:12px;z-index:3;font-family:inherit;font-size:.55rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);background:rgba(23,26,32,.72);border:1px solid var(--edge);border-radius:999px;padding:6px 12px;cursor:pointer;transition:all .2s;}
+.sndbtn:hover{color:var(--ink);border-color:var(--line);}
+.sndbtn:active{transform:translateY(1px);}
 body.vizmode .center{justify-content:flex-start;padding-top:6px;}
+/* lanes fills the whole face top to bottom — the readout moves into the canvas */
+body.lanesmode .center{display:none;}
 body.vizmode .cbpm{font-size:1.05rem;opacity:.85;}
 body.vizmode .cline{display:none;}
 body.vizmode #drillLine{display:none;}
@@ -161,7 +168,9 @@ input[type=range]::-moz-range-thumb{width:21px;height:21px;border:none;border-ra
   background-position:calc(100% - 16px) 55%,calc(100% - 11px) 55%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;
 }
 
-/* ── click accent grid (Meter tab — the precise editor) ── */
+/* ── click accent grid — lives under the face, not in a tab ── */
+.accentwrap{flex:0 0 auto;padding:8px var(--pad) 0;}
+body.bouncemode .accentwrap{display:none;}   /* the sticking strip owns that space instead */
 .grid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
 .beat{display:flex;gap:3px;padding:5px 5px 4px;border-radius:9px;background:rgba(255,255,255,.017);border:1px solid rgba(255,255,255,.035);}
 .cell{
@@ -228,6 +237,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 
 <div class="stage">
   <button class="vizbtn" id="vizBtn" aria-pressed="false">3D</button>
+  <button class="sndbtn" id="sndBtn" aria-label="sound">Wood</button>
   <div class="flipper" id="flipper">
     <canvas id="circle" width="300" height="300"></canvas>
     <div class="center">
@@ -240,6 +250,9 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 </div>
 
 <div class="stickwrap"><div class="stick" id="stick"></div></div>
+
+<!-- the click, editable in place, directly under the face it belongs to -->
+<div class="accentwrap"><div class="grid" id="grid"></div></div>
 
 <div class="tempoarea">
   <div class="temporow">
@@ -263,16 +276,14 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 </div>
 
 <div class="tabs">
-  <button class="tab on" data-panel="meter">Meter<i id="dotMeter"></i></button>
-  <button class="tab" data-panel="rhythm">Rhythm<i id="dotRhythm"></i></button>
+  <button class="tab on" data-panel="rhythm">Rhythm<i id="dotRhythm"></i></button>
   <button class="tab" data-panel="train">Train<i id="dotTrain"></i></button>
-  <button class="tab" data-panel="sound">Sound</button>
 </div>
 
 <div class="pad">
 
-  <!-- ── METER ── -->
-  <div class="panel on" id="meterPanel">
+  <!-- ── RHYTHM — meter, subdivision, feel and layers, one surface ── -->
+  <div class="panel on" id="rhythmPanel">
     <div class="stepline">
       <label>Beats/bar</label>
       <button class="step" id="beatDn">−</button>
@@ -281,38 +292,40 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
     </div>
     <h2 style="font-size:.56rem;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin-bottom:9px;font-weight:400;">Subdivision</h2>
     <div class="keys" id="subs"></div>
-    <div class="sect">
-      <h2>Click accents</h2>
-      <div class="grid" id="grid"></div>
-      <p class="hint">Tap a step — accent · mute · normal. The outer ring up top is the same thing: tap a tick there and it changes here too.</p>
+    <!-- feel belongs to the subdivision — it's what happens to its off-beats -->
+    <div class="keys c2" style="margin-top:7px;">
+      <button class="key" id="swingKey">Swing<small id="swingSub">off</small></button>
+      <button class="key" id="altKey">Alternate<small>straight ↔ swung</small></button>
     </div>
-    <div class="sect">
-      <div class="keys c2">
-        <button class="key" id="swingKey">Swing<small id="swingSub">off</small></button>
-        <button class="key" id="altKey">Alternate<small>straight ↔ swung</small></button>
-      </div>
-      <div class="body" id="swingBody">
-        <div class="slide"><label>Feel</label><input type="range" id="swingR" min="0" max="100" value="67"><span class="val" id="swingRVal">67% · Triplet</span></div>
-        <p class="hint" id="swingHint">Delays the off-beats of the current subdivision. Needs an even subdivision — 8ths, 16ths, 32nds. Layers with an even step count swing with it.</p>
-      </div>
-      <div class="body" id="altBody">
-        <div class="stepline"><label>Straight</label><button class="step" id="strDn">−</button><span class="stepv" id="strVal">2</span><button class="step" id="strUp">+</button><span class="hint" style="margin:0;">bars</span></div>
-        <div class="stepline"><label>Swung</label><button class="step" id="swgDn">−</button><span class="stepv" id="swgVal">2</span><button class="step" id="swgUp">+</button><span class="hint" style="margin:0;">bars</span></div>
-        <p class="hint">Plays straight that many bars, then swings that many, and loops — so you practise flipping the feel cleanly. The circle tells you which one you're in.</p>
-      </div>
+    <div class="body" id="swingBody">
+      <div class="slide"><label>Feel</label><input type="range" id="swingR" min="0" max="100" value="67"><span class="val" id="swingRVal">67% · Triplet</span></div>
+      <p class="hint" id="swingHint">Delays the off-beats of the current subdivision. Needs an even subdivision — 8ths, 16ths, 32nds. Layers with an even step count swing with it.</p>
     </div>
-  </div>
+    <div class="body" id="altBody">
+      <div class="stepline"><label>Straight</label><button class="step" id="strDn">−</button><span class="stepv" id="strVal">2</span><button class="step" id="strUp">+</button><span class="hint" style="margin:0;">bars</span></div>
+      <div class="stepline"><label>Swung</label><button class="step" id="swgDn">−</button><span class="stepv" id="swgVal">2</span><button class="step" id="swgUp">+</button><span class="hint" style="margin:0;">bars</span></div>
+      <p class="hint">Plays straight that many bars, then swings that many, and loops — so you practise flipping the feel cleanly. The circle tells you which one you're in.</p>
+    </div>
 
-  <!-- ── RHYTHM ── -->
-  <div class="panel" id="rhythmPanel">
     <div class="sect">
       <h2>Cross-rhythm — evenly across the bar</h2>
       <div class="keys" id="crossKeys"></div>
+      <p class="hint">Each layer lays its hits across the bar as evenly as the maths allows — a Euclidean rhythm, which is what nearly every traditional groove turns out to be. On the circle each layer is a ring, and its hits draw a shape. <b>Drag a ring to turn it</b> — the shape doesn't change, where it lands does. Tap a dot to accent it.</p>
     </div>
-    <p class="hint">Each layer lays its hits across the bar as evenly as the maths allows — a Euclidean rhythm, which is what nearly every traditional groove turns out to be. On the circle each layer is a ring, and its hits draw a shape. <b>Drag a ring to turn it</b> — the shape doesn't change, where it lands does. Tap a dot to accent it. Pick a kit below to load the layers.</p>
+
     <div class="sect">
       <h2>Kits &amp; patterns</h2>
       <div class="keys c2" id="kitKeys"></div>
+    </div>
+
+    <div class="sect">
+      <h2>Session</h2>
+      <div class="slide"><label>Volume</label><input type="range" id="vol" min="0" max="100" value="75"><span class="val" id="volVal">75</span></div>
+      <p class="hint" style="margin-top:0;">This page keeps its own memory, locally — no account, no cloud. It reopens exactly where you left it, and the three memory keys hold a whole rig each: tempo, meter, accent pattern, drill, sound. <b>Tap</b> a key to recall it, <b>hold</b> it to store what's on screen.</p>
+      <div class="keys c2" style="margin-top:11px;">
+        <button class="key" id="resetKey">Reset<small>back to defaults</small></button>
+        <button class="key" id="wipeKey">Clear memory<small>M1 M2 M3</small></button>
+      </div>
     </div>
   </div>
 
@@ -345,33 +358,23 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
       </div>
       <div class="keys c2" style="margin-bottom:10px;">
         <button class="key on" id="ladKindSubs">Subdivisions<small>qtr → 64th</small></button>
-        <button class="key" id="ladKindCross">Cross-rhythms<small>off → 11 across</small></button>
+        <button class="key" id="ladKindCross">Cross-rhythms<small>off → 21 across</small></button>
       </div>
       <div class="stepline"><label>Bars each</label><button class="step" id="ladRepDn">−</button><span class="stepv" id="ladRepVal">2</span><button class="step" id="ladRepUp">+</button></div>
       <div class="keys c2">
         <button class="key on" data-mode="wrap">Up, restart<small>climb, then top → bottom</small></button>
         <button class="key" data-mode="bounce">Up &amp; back<small>climb, then walk back down</small></button>
       </div>
-      <p class="hint">Climbs a rung every few bars. <b>Subdivisions</b> runs the pulse from quarters up to 64ths. <b>Cross-rhythms</b> climbs from a plain count up through 3, 5, 6, 7, 9, 10 and 11 across the bar — and back to nothing. Watch the shapes change as it goes.</p>
+      <p class="hint">Climbs a rung every few bars. <b>Subdivisions</b> runs the pulse from quarters up to 64ths. <b>Cross-rhythms</b> climbs from a plain count up through 3, 5, 6, 7, 9, 10, 11 and on to 21 across the bar — and back to nothing. Watch the shapes change as it goes.</p>
     </div>
-  </div>
-
-  <!-- ── SOUND ── -->
-  <div class="panel" id="soundPanel">
-    <div class="keys" id="sounds"></div>
-    <div class="slide" style="margin-top:15px;"><label>Volume</label><input type="range" id="vol" min="0" max="100" value="75"><span class="val" id="volVal">75</span></div>
-    <div class="sect">
-      <h2>Session</h2>
-      <p class="hint" style="margin-top:0;">This page keeps its own memory, locally — no account, no cloud. It reopens exactly where you left it, and the three memory keys hold a whole rig each: tempo, meter, accent pattern, drill, sound. <b>Tap</b> a key to recall it, <b>hold</b> it to store what's on screen. One slot per student, or per exercise.</p>
-      <div class="keys c2" style="margin-top:11px;">
-        <button class="key" id="resetKey">Reset<small>back to defaults</small></button>
-        <button class="key" id="wipeKey">Clear memory<small>M1 M2 M3</small></button>
-      </div>
-    </div>
-    <p class="hint">Everything updates live while it's running — tempo, subdivision, swing, accents, all mid-count. Built for teaching.</p>
   </div>
 
 </div>
+
+<!-- holds the audio session open so the OS shows transport controls and the
+     count survives a backgrounded tab. Silence — the clicks go out the direct
+     Web Audio path, untouched, so nothing is added to the timing chain. -->
+<audio id="keepalive" loop playsinline preload="auto"></audio>
 
 <div class="transport">
   <div class="mems">
@@ -420,7 +423,7 @@ function voiceStepTime(v, step, barStart, barDur, swung){
 var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true, hands:false,
             bar:0, barTime:0};
 var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'wrap', kind:'subs'};   // auto-cycle subdivisions or cross-rhythms
-var LADDER_CROSS=[0,3,5,6,7,9,10,11];               // rung 0 is nothing — it climbs out of and back into silence
+var LADDER_CROSS=[0,3,5,6,7,9,10,11,13,15,17,19,21];   // rung 0 is nothing — it climbs out of and back into silence
 function ladderRungCount(){ return ladder.kind==='cross'?LADDER_CROSS.length:SUBS.length; }
 
 // ── figures for the bounce trainer ──
@@ -677,6 +680,9 @@ function start(){
   if(bounce.on){ bounce.bar=0; bounce.barTime=actx.currentTime+0.1; bounceVisQ=[]; }
   else { if(ladder.on){ ladderReset(); ladderApply(); } cellIndex=0; nextTime=actx.currentTime+0.06; }
   timer=setInterval(tick,25);
+  buildKeepalive();
+  try{ var pr=keepEl.play(); if(pr&&pr.catch) pr.catch(function(){}); }catch(e){}
+  sessionMeta();
 }
 function stop(){
   playing=false; closeBus();          // silence anything already queued ahead
@@ -686,6 +692,8 @@ function stop(){
   var cur=document.querySelector('.cell.now'); if(cur) cur.classList.remove('now');
   document.querySelectorAll('#stick .nt.now').forEach(function(c){ c.classList.remove('now'); });
   curFeel=false; curBarStart=-1; stickNow=-1; updateStatus();
+  try{ keepEl.pause(); }catch(e){}
+  sessionMeta();
 }
 function restartBar(){ if(playing){ cellIndex=0; nextTime=actx.currentTime+0.05; } }
 
@@ -778,7 +786,7 @@ function updateBounceStatus(e){
 var nowCell=-1, voiceFlash={}, voicePulse={}, stickNow=-1;
 function draw(){
   requestAnimationFrame(draw);
-  if(viz===1) drawViz(); else if(viz===2) drawForms(); else drawCircle();
+  if(viz===1) drawViz(); else if(viz===2) drawForms(); else if(viz===3) drawLanes(); else drawCircle();
   if(!playing||!actx) return;
   var t=actx.currentTime, changed=false;
   while(visQ.length && visQ[0].time<=t){ nowCell=visQ.shift().cell; changed=true; }
@@ -826,23 +834,33 @@ function label(posInBeat, beatNum){
   if(sub===4) return ['','e','&','a'][posInBeat];
   return '·';
 }
-function cellSize(n){
+// It sits under the face now, so it has to stay short — pick the widest layout
+// that still fits the bar in three rows or fewer, then let the cells shrink.
+function gridLayout(){
   var w=$('grid').clientWidth || 340;
-  var perRow=(n>=8)?1:(n>=4?2:(n===3?3:4));            // beats per row — keeps steps chunky
-  var avail=w-(perRow-1)*8-perRow*12;                   // gaps + beat-group padding
-  return Math.max(11, Math.min(34, Math.floor(avail/(perRow*n))-3));
+  function cellFor(perRow){
+    return Math.floor((((w-(perRow-1)*8)/perRow) - 12 - (sub-1)*3) / sub);
+  }
+  for(var rows=1;rows<=3;rows++){
+    var perRow=Math.ceil(beats/rows), c=cellFor(perRow);
+    if(c>=9 || rows===3) return {perRow:perRow, cell:Math.max(8,Math.min(26,c))};
+  }
+  return {perRow:beats, cell:12};
 }
 function buildGrid(){
   var grid=$('grid'); grid.innerHTML='';
-  var cellPx=cellSize(sub);
+  var lay=gridLayout(), cellPx=lay.cell;
+  grid.style.maxWidth='100%';
   for(var b=0;b<beats;b++){
     var bg=document.createElement('div'); bg.className='beat';
     for(var p=0;p<sub;p++){
       var i=b*sub+p;
       var c=document.createElement('div');
       c.className='cell'+(p===0?' downbeat':'')+(pattern[i]===2?' accent':pattern[i]===0?' off':'');
-      c.style.width=cellPx+'px'; c.style.height=(cellPx+7)+'px';
-      c.dataset.i=i; c.textContent=label(p,b+1);
+      c.style.width=cellPx+'px'; c.style.height=(cellPx+5)+'px';
+      c.dataset.i=i;
+      if(cellPx>=13) c.textContent=label(p,b+1);      // too small to letter — the ring still names it
+      else if(p===0) c.textContent=String(b+1);
       bg.appendChild(c);
     }
     grid.appendChild(bg);
@@ -878,8 +896,7 @@ function updateStatus(){
   if(decel.on) bits.push('→'+decel.floor);
   $('s2').innerHTML=bits.join(' · ');
   // tab dots: something is armed under this tab
-  $('dotMeter').classList.toggle('lit', swing.on);
-  $('dotRhythm').classList.toggle('lit', voices.some(function(v){return v.on;}));
+  $('dotRhythm').classList.toggle('lit', swing.on||voices.some(function(v){return v.on;}));
   $('dotTrain').classList.toggle('lit', bounce.on||ladder.on);
 }
 function flashStatus(msg){
@@ -894,7 +911,6 @@ function flashStatus(msg){
     [].forEach.call(document.querySelectorAll('.tab'),function(x){ x.classList.toggle('on',x===t); });
     [].forEach.call(document.querySelectorAll('.panel'),function(p){ p.classList.toggle('on',p.id===t.dataset.panel+'Panel'); });
     document.querySelector('.pad').scrollTop=0;
-    if(t.dataset.panel==='meter') buildGrid();       // panel was display:none — sizes were stale
   };
 });
 
@@ -908,15 +924,17 @@ function flashStatus(msg){
     b.onclick=function(){ setSub(o.n); };
     subsEl.appendChild(b);
   });
-  var sEl=$('sounds');
-  SOUNDS.forEach(function(o){
-    var b=document.createElement('button'); b.className='key'+(o.id===soundType?' on':'');
-    b.textContent=o.name; b.dataset.id=o.id; b.style.fontSize='.8rem';
-    b.onclick=function(){ soundType=o.id; [].forEach.call(sEl.children,function(x){x.classList.toggle('on',x.dataset.id===soundType);});
-      ensureAudio(); click(actx.currentTime+0.02,2,true); save(); };  // preview
-    sEl.appendChild(b);
-  });
 })();
+// the sound key — one control, five voices, cycled in place under the viz key
+function soundName(id){ for(var i=0;i<SOUNDS.length;i++) if(SOUNDS[i].id===id) return SOUNDS[i].name; return id; }
+function paintSound(){ $('sndBtn').textContent=soundName(soundType); }
+$('sndBtn').onclick=function(){
+  var i=0; for(var j=0;j<SOUNDS.length;j++) if(SOUNDS[j].id===soundType) i=j;
+  soundType=SOUNDS[(i+1)%SOUNDS.length].id;
+  paintSound();
+  ensureAudio(); click(actx.currentTime+0.02,2,true);   // hear it as you pass through
+  save();
+};
 function setSub(n){
   sub=n;
   [].forEach.call($('subs').children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
@@ -1145,7 +1163,7 @@ function applySnapshot(s){
   $('vol').value=s.vol; $('volVal').textContent=s.vol; if(volGain) volGain.gain.value=volFromSlider();
   $('beatsVal').textContent=beats;
   [].forEach.call($('subs').children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
-  [].forEach.call($('sounds').children,function(x){ x.classList.toggle('on',x.dataset.id===soundType); });
+  paintSound();
   setClickMute(!!s.cm);          // absent in old snapshots — defaults to on
   // ramp
   $('rate').value=s.accel.r; accel.rate=rateFromSlider(s.accel.r); $('rateVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
@@ -1191,7 +1209,9 @@ function writeStore(o){ try{ localStorage.setItem(KEY,JSON.stringify(o)); }catch
 var saveT;
 function save(){                                   // remember where you left off
   clearTimeout(saveT); saveT=setTimeout(function(){
-    var st=loadStore(); st.last=snapshot(); writeStore(st); },250);
+    var st=loadStore(); st.last=snapshot(); writeStore(st);
+    if(playing) sessionMeta();                     // keep the lock screen honest
+  },250);
 }
 function renderMems(){
   var st=loadStore(), slots=st.slots||[];
@@ -1243,6 +1263,47 @@ $('wipeKey').onclick=function(){
 
 // ── transport ──────────────────────────────────────────
 $('play').onclick=function(){ playing?stop():start(); };
+
+// ── background audio + lock-screen transport ───────────
+// The clicks go out the direct Web Audio path and stay there — nothing below
+// sits in the timing chain. All this does is hold a silent loop playing, which
+// is what keeps the OS from parking the tab, and gives us a media session to
+// hang real buttons on. Chrome honours it; iOS Safari may still suspend on a
+// hard screen lock, which is a platform limit, not a bug here.
+var keepEl=$('keepalive'), keepBuilt=false;
+function buildKeepalive(){
+  if(keepBuilt) return; keepBuilt=true;
+  var sr=8000, n=sr*5, bytes=44+n*2;
+  var buf=new ArrayBuffer(bytes), dv=new DataView(buf), p=0;
+  function str(s){ for(var i=0;i<s.length;i++) dv.setUint8(p++,s.charCodeAt(i)); }
+  function u32(v){ dv.setUint32(p,v,true); p+=4; }
+  function u16(v){ dv.setUint16(p,v,true); p+=2; }
+  str('RIFF'); u32(bytes-8); str('WAVE'); str('fmt '); u32(16); u16(1); u16(1);
+  u32(sr); u32(sr*2); u16(2); u16(16); str('data'); u32(n*2);
+  keepEl.src=URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+}
+function sessionMeta(){
+  if(!('mediaSession' in navigator)) return;
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title: bpm+' BPM · '+beats+'/4 · '+subName(sub),
+      artist: swing.on?'swung':'straight',
+      album: 'beGump Metronome'
+    });
+    navigator.mediaSession.playbackState=playing?'playing':'paused';
+  }catch(e){}
+}
+(function(){
+  if(!('mediaSession' in navigator)) return;
+  var set=function(a,fn){ try{ navigator.mediaSession.setActionHandler(a,fn); }catch(e){} };
+  set('play',  function(){ if(!playing) start(); });
+  set('pause', function(){ if(playing) stop(); });
+  set('stop',  function(){ if(playing) stop(); });
+  // the two spare transport buttons become tempo — the one thing you'd want
+  // to reach for without unlocking the phone
+  set('nexttrack',     function(){ setBpm(bpm+5); sessionMeta(); });
+  set('previoustrack', function(){ setBpm(bpm-5); sessionMeta(); });
+})();
 document.addEventListener('keydown',function(e){
   var t=e.target.tagName;
   if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA') return;
@@ -1314,7 +1375,10 @@ function buildKits(){
 }
 
 // ── cross-rhythm: n even pulses across the bar (voice 4) ─
-var CROSS=[0,3,5,6,7,9,10,11];
+// 0 is off; everything from 2 up to 21 across the bar. Past about 13 it stops
+// being a cross-rhythm you can count and becomes a texture you feel — which is
+// exactly why it's worth having on the dial.
+var CROSS=[0,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
 function buildCross(){
   var host=$('crossKeys'); if(!host) return;
   host.innerHTML='';
@@ -1453,7 +1517,7 @@ function drawCircle(){
     });
   }
 
-  // playhead
+  // playhead — the hand, and the orb riding the rim ahead of it
   if(playing){
     var pa=-Math.PI/2 + ph*Math.PI*2;
     cx.strokeStyle='rgba(243,212,136,.45)'; cx.lineWidth=1.5;
@@ -1462,6 +1526,33 @@ function drawCircle(){
     cx.moveTo(cxx+Math.cos(pa)*rin, cyy+Math.sin(pa)*rin);
     cx.lineTo(cxx+Math.cos(pa)*(r0-2), cyy+Math.sin(pa)*(r0-2));
     cx.stroke();
+
+    // the tracer — a comet tail swept back along the rim it just came over.
+    // Drawn as tapering segments rather than one stroke so it can fade along
+    // its own length, which is what makes it read as motion and not a smear.
+    var orbR=r0-6, TAIL=0.13, SEG=22;     // tail is 13% of the bar, always
+    for(var ti=SEG;ti>0;ti--){
+      var f0=ti/SEG, f1=(ti-1)/SEG;
+      var a0=pa-TAIL*Math.PI*2*f0, a1=pa-TAIL*Math.PI*2*f1;
+      var fade=Math.pow(1-f0,1.7);
+      cx.strokeStyle='rgba(243,212,136,'+(fade*0.55).toFixed(3)+')';
+      cx.lineWidth=0.6+fade*3.2;
+      cx.lineCap='round';
+      cx.beginPath();
+      cx.arc(cxx,cyy,orbR,a0,a1);
+      cx.stroke();
+    }
+    cx.lineCap='butt';
+    // the orb itself
+    var ox=cxx+Math.cos(pa)*orbR, oy=cyy+Math.sin(pa)*orbR;
+    var halo=cx.createRadialGradient(ox,oy,0,ox,oy,13);
+    halo.addColorStop(0,'rgba(255,246,223,.62)');
+    halo.addColorStop(0.45,'rgba(243,212,136,.24)');
+    halo.addColorStop(1,'rgba(243,212,136,0)');
+    cx.fillStyle=halo;
+    cx.beginPath(); cx.arc(ox,oy,13,0,Math.PI*2); cx.fill();
+    cx.fillStyle='#fff6df';
+    cx.beginPath(); cx.arc(ox,oy,3.1,0,Math.PI*2); cx.fill();
   }
 }
 
@@ -1550,10 +1641,11 @@ function drawCircle(){
 // voices with different step counts are different gears around the same axis —
 // they only line up where the rhythms actually coincide. Drag to orbit.
 var camYaw=0, camPitch=1.08, vizT=0, orbitDrift=0;
-var VIZNAMES=['ring','coil','forms'];       // flat time · time as a spring · rhythms as solids
+var VIZNAMES=['ring','coil','forms','lanes'];   // flat time · a spring · solids · the pyramid, falling
 function setViz(v){
-  viz=(v===true)?1:(v|0)%3;                 // old stores saved a boolean
+  viz=(v===true)?1:(v|0)%4;                 // old stores saved a boolean
   document.body.classList.toggle('vizmode',viz>0);
+  document.body.classList.toggle('lanesmode',viz===3);
   $('vizBtn').setAttribute('aria-pressed',viz>0?'true':'false');
   $('vizBtn').textContent=VIZNAMES[viz];
   var st=loadStore(); st.viz=viz; writeStore(st);
@@ -1633,15 +1725,44 @@ function drawViz(){
     var d=z3+CAMD; if(d<0.4) d=0.4;
     return {x:R + x3*F/d, y:R + y2*F/d, s:CAMD/d};
   }
+  // stage light — the coil hangs in a room, not on a black rectangle
+  var bgg=cx.createRadialGradient(R,R*0.86,0,R,R*0.86,R*1.25);
+  bgg.addColorStop(0,'rgba(255,240,205,0.055)');
+  bgg.addColorStop(0.55,'rgba(140,120,190,0.022)');
+  bgg.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=bgg; cx.fillRect(0,0,w,w);
+  // dust in the beam — slow, sparse, parallaxed off the orbit so the space
+  // reads as deep even when nothing is playing
+  for(var dm=0;dm<26;dm++){
+    var dz=((dm*0.37+vizT*0.035)%1)*BARS;
+    var dth=dm*2.399+vizT*0.02;                    // golden angle, so they never band
+    var dq=P((dth/(Math.PI*2))%1, dz, 1.55+((dm*7)%5)*0.13);
+    var dfd=Math.max(0,1-dz/(BARS+0.5));
+    cx.fillStyle='rgba(224,205,170,'+(0.10*dfd).toFixed(3)+')';
+    cx.beginPath(); cx.arc(dq.x,dq.y,0.7*dq.s+0.2,0,Math.PI*2); cx.fill();
+  }
   // the spine — the axis time runs along
   var c0=P(0,0,0), cf=P(0,BARS,0);
-  cx.strokeStyle='rgba(198,180,152,.14)'; cx.lineWidth=1;
+  var spg=cx.createLinearGradient(c0.x,c0.y,cf.x,cf.y);
+  spg.addColorStop(0,'rgba(243,212,136,.30)');
+  spg.addColorStop(1,'rgba(198,180,152,.03)');
+  cx.strokeStyle=spg; cx.lineWidth=1.2;
   cx.beginPath(); cx.moveTo(c0.x,c0.y); cx.lineTo(cf.x,cf.y); cx.stroke();
-  // the now-ring — the plane the sound is on
-  cx.strokeStyle='rgba(243,212,136,.34)'; cx.lineWidth=1.2;
+  // bar rings — one clean circle per turn, receding. The coil's ribs: they say
+  // "this is where a bar begins" without needing a label.
+  for(var br=1;br<=BARS;br++){
+    var bfd=Math.max(0.05,1-br/(BARS+0.6));
+    cx.strokeStyle='rgba(198,180,152,'+(0.13*bfd).toFixed(3)+')'; cx.lineWidth=1;
+    cx.beginPath();
+    for(var bi=0;bi<=56;bi++){ var bq=P(bi/56,br,1.22); if(bi===0)cx.moveTo(bq.x,bq.y); else cx.lineTo(bq.x,bq.y); }
+    cx.closePath(); cx.stroke();
+  }
+  // the now-ring — the plane the sound is on. Haloed, so it sits in front.
   cx.beginPath();
-  for(var i=0;i<=48;i++){ var q=P(i/48,0,1.22); if(i===0)cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y); }
-  cx.stroke();
+  for(var i=0;i<=64;i++){ var q=P(i/64,0,1.22); if(i===0)cx.moveTo(q.x,q.y); else cx.lineTo(q.x,q.y); }
+  cx.closePath();
+  cx.strokeStyle='rgba(243,212,136,.10)'; cx.lineWidth=5.5; cx.stroke();
+  cx.strokeStyle='rgba(243,212,136,.42)'; cx.lineWidth=1.3; cx.stroke();
   // beat one, marked — it travels with the pattern and meets the needle on the downbeat
   var one=P(0,0,1.42);
   cx.fillStyle='rgba(224,178,78,.85)';
@@ -1660,18 +1781,28 @@ function drawViz(){
   drawCrossRail(w,ph);
   // the click helix — a continuous spiral whose density IS the subdivision
   var clickA=clickMute?0.35:1;
-  var SAMP=48, totalS=BARS*SAMP, prev=null;
+  var SAMP=64, totalS=BARS*SAMP, prev=null;
+  cx.lineCap='round';
   for(var k4=totalS;k4>=0;k4--){
     var us=k4/SAMP-ph;
     if(us<-0.05){ break; }
     var p=P((k4%SAMP)/SAMP,us,1.22);
     if(prev){
       var fd=Math.max(0.12,1-us/(BARS+0.5));
-      cx.strokeStyle='rgba(198,180,152,1)'; cx.globalAlpha=0.15*fd*clickA; cx.lineWidth=1;
-      cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke(); cx.globalAlpha=1;
+      // near turns run warm and thick, far turns go cool and thin — aerial
+      // perspective, the same trick that makes distant hills look blue
+      var warm=Math.pow(fd,1.4);
+      var rr=Math.round(150+58*warm), gg=Math.round(142+38*warm), bb=Math.round(160-8*warm);
+      cx.strokeStyle='rgba('+rr+','+gg+','+bb+',1)';
+      cx.globalAlpha=0.07*fd*clickA; cx.lineWidth=3.4*p.s;      // halo
+      cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke();
+      cx.globalAlpha=0.20*fd*clickA; cx.lineWidth=1.05*p.s;     // core
+      cx.beginPath(); cx.moveTo(prev.x,prev.y); cx.lineTo(p.x,p.y); cx.stroke();
+      cx.globalAlpha=1;
     }
     prev=p;
   }
+  cx.lineCap='butt';
   // tick dots — each coming turn is drawn at the density THAT bar will really
   // have, so a ladder climb thickens the spiral upstream before it arrives.
   // Beats wear the warm count colour; subdivisions sit cool so they never blur.
@@ -1742,8 +1873,12 @@ function drawViz(){
     for(var e2=evs.length-1;e2>0;e2--){
       var a2=P(evs[e2].fr,evs[e2].u,rad), b4=P(evs[e2-1].fr,evs[e2-1].u,rad);
       var fd=Math.max(0.12,1-evs[e2].u/(BARS+0.5));
-      cx.strokeStyle=col; cx.globalAlpha=0.45*fd; cx.lineWidth=1.3*a2.s+0.3;
-      cx.beginPath(); cx.moveTo(b4.x,b4.y); cx.lineTo(a2.x,a2.y); cx.stroke(); cx.globalAlpha=1;
+      cx.strokeStyle=col; cx.lineCap='round';
+      cx.globalAlpha=0.10*fd; cx.lineWidth=(1.3*a2.s+0.3)*3.4;      // halo
+      cx.beginPath(); cx.moveTo(b4.x,b4.y); cx.lineTo(a2.x,a2.y); cx.stroke();
+      cx.globalAlpha=0.48*fd; cx.lineWidth=1.3*a2.s+0.3;            // core
+      cx.beginPath(); cx.moveTo(b4.x,b4.y); cx.lineTo(a2.x,a2.y); cx.stroke();
+      cx.globalAlpha=1; cx.lineCap='butt';
     }
     // the cross-section — the same polygon the ring view shows, on the now-plane
     if(frs.length>=2){
@@ -1827,13 +1962,19 @@ function drawForms(){
   var bg=cx.createRadialGradient(R,R*0.92,0,R,R*0.92,R*1.12);
   bg.addColorStop(0,'rgba(255,240,205,0.05)'); bg.addColorStop(1,'rgba(0,0,0,0)');
   cx.fillStyle=bg; cx.fillRect(0,0,w,w);
+  // Everything in this view is turned by half a step of the count. With beat 1
+  // parked dead at the front you look straight down a corner, so 4/4 reads as a
+  // diamond standing on its point instead of the cube it actually is. Half a
+  // step puts a FACE to camera — a square looks square, a hexagon looks like a
+  // hexagon. The needle turns with it, so the downbeat still lands where it did.
+  var FROT=Math.PI/Math.max(beats,2);
   // the cage — the count, in true proportion: height equals edge length
   var CR=1.26;
   var edge=2*CR*Math.sin(Math.PI/Math.max(beats,2));
   var CH=Math.max(0.55, Math.min(1.15, edge*0.62));
   var topPts=[], botPts=[];
   for(var i=0;i<beats;i++){
-    var th=(i/beats-ph)*Math.PI*2 - Math.PI/2;
+    var th=(i/beats-ph)*Math.PI*2 - Math.PI/2 + FROT;
     topPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, CH));
     botPts.push(PRc(Math.cos(th)*CR, Math.sin(th)*CR, -CH));
   }
@@ -1861,7 +2002,8 @@ function drawForms(){
     cx.globalAlpha=1;
   }
   // the needle — fixed; the whole machine turns through it
-  glowline(PRc(0,-CR,-CH), PRc(0,-CR,CH), '#f3d488', playing?.8:.35, 1.8);
+  var nA=-Math.PI/2+FROT;
+  glowline(PRc(Math.cos(nA)*CR,Math.sin(nA)*CR,-CH), PRc(Math.cos(nA)*CR,Math.sin(nA)*CR,CH), '#f3d488', playing?.8:.35, 1.8);
   // the subdivision — a gear spinning at the base of the stack
   if(!bounce.on && sub>1){
     var fineN=beats*sub, gz=-CH*0.62, gr=1.02;
@@ -1874,7 +2016,7 @@ function drawForms(){
     }
     cx.strokeStyle=gcol; cx.globalAlpha=.20; cx.lineWidth=1; cx.stroke(); cx.globalAlpha=1;
     for(var gt=0;gt<fineN;gt+=gstep){
-      var gth=(gt/fineN-ph)*Math.PI*2 - Math.PI/2;
+      var gth=(gt/fineN-ph)*Math.PI*2 - Math.PI/2 + FROT;
       var gq2=PRc(Math.cos(gth)*gr, Math.sin(gth)*gr, gz);
       var gwr=((gt/fineN-ph)%1+1)%1, gd=Math.min(gwr,1-gwr);
       var gpx=playing?Math.max(0,1-gd*fineN*2):0;
@@ -1886,16 +2028,16 @@ function drawForms(){
     }
   }
   // one rhythm, one solid — faced antiprism up to 12 vertices, beaded ring past that
-  function solidForm(fracs, accs, zc, h, hue, brand, pulse, wob){
+  function solidForm(fracs, accs, zc, h, hue, brand, pulse, wob, radO){
     var k=fracs.length; if(!k) return;
-    var rad=0.80, sc=1+pulse*0.20;
+    var rad=(radO||0.80), sc=1+pulse*0.20;
     var lineCol=brand||colOf(0,hue,64), fillLite, fillDark;
     if(brand){ fillLite='rgba(224,178,78,0.10)'; fillDark='rgba(224,178,78,0.05)'; }
     else { fillLite='hsla('+hue.toFixed(1)+',70%,55%,0.13)'; fillDark='hsla('+hue.toFixed(1)+',70%,42%,0.07)'; }
     if(!brand) lineCol='hsla('+hue.toFixed(1)+',64%,62%,1)';
     var ca=Math.cos(wob), sa=Math.sin(wob);
     function V(fr, dz, extra){
-      var th=(fr-ph)*Math.PI*2 - Math.PI/2 + (extra||0);
+      var th=(fr-ph)*Math.PI*2 - Math.PI/2 + FROT + (extra||0);
       var x=Math.cos(th)*rad*sc, y=Math.sin(th)*rad*sc, zl=dz*sc;
       var y3=y*ca - zl*sa, z3=y*sa + zl*ca;
       return PRc(x, y3, zc+z3);
@@ -1979,18 +2121,183 @@ function drawForms(){
         solidForm(fr4, ac4, zc, Math.min(0.38, 0.85/act.length), hueOf(v.n, vi*24), null, pulseOf(vi), wob);
       });
     }
+    drawInterference();
+  }
+
+  // ── the layer deeper — what the two rhythms make BETWEEN them ──
+  // The count draws a square. Three across draws a triangle. Neither of those
+  // is the thing you actually hear: you hear every onset from both, in one
+  // stream, and that stream is its own polygon — 3 against 4 is a lopsided
+  // hexagon nobody has a name for (seven events, but the downbeat is shared).
+  // Where the two coincide are the lock points, and there are exactly gcd(a,b)
+  // of them. Those are drawn big: the only moments both parts agree.
+  function drawInterference(){
+    var cv=voices[3];
+    if(!cv || !cv.on || cv.n<2 || cv.n===beats || beats<1) return;
+    var a=[], b=[], i5;
+    for(i5=0;i5<beats;i5++) a.push(i5/beats);
+    for(i5=0;i5<cv.n;i5++) b.push(i5/cv.n);
+    var all=a.concat(b).sort(function(x,y){ return x-y; });
+    var fr=[], lock=[];
+    for(i5=0;i5<all.length;i5++){
+      if(fr.length && Math.abs(all[i5]-fr[fr.length-1])<1e-6){ lock[lock.length-1]=true; continue; }
+      fr.push(all[i5]); lock.push(false);
+    }
+    if(fr.length<3) return;
+    // it turns on its own clock — one full revolution per lock cycle, so the
+    // spin rate IS the relationship between the two numbers
+    var wob=Math.sin(vizT*0.17)*(playing?0.05:0.20);
+    solidForm(fr, lock, 0, 0.14, hueOf(fr.length, 96), null, 0, wob, 1.16);
+    // name the thing, quietly
+    var locks=lock.filter(Boolean).length;
+    cx.fillStyle='rgba(198,180,152,.34)';
+    cx.font='400 9px Futura, "Century Gothic", sans-serif';
+    cx.textAlign='center';
+    cx.fillText(cv.n+' against '+beats+'  ·  '+fr.length+' onsets  ·  '+locks+' lock'+(locks===1?'':'s'), R, w-9);
   }
   drawCountRail(w,ph);
   drawCrossRail(w,ph);
 }
 
+// ── LANES — the rhythm pyramid, falling ─────────────────
+// Every theory teacher draws this on the board: whole note on top, halves,
+// quarters, eighths, triplets stacked underneath, all sharing one width. It's
+// the clearest picture of rhythm there is and it has always been a still
+// diagram. Here it moves. Each subdivision gets a lane, they all fall at the
+// same speed against one shared clock, and you watch where the triplet lands
+// between the sixteenths instead of being told.
+//
+// Drawn straight from bpm/beats/sub, never from the audio queues — the
+// scheduler only knows 100ms of the future and this view needs two bars of it.
+function laneSet(){
+  var out=[], ds=[1,2,3,4], i;
+  if(ds.indexOf(sub)<0) ds.push(sub);
+  for(i=0;i<ds.length;i++) out.push({n:beats*ds[i], per:ds[i], name:subName(ds[i]), cross:false});
+  var cv=voices[3];
+  if(cv && cv.on && cv.n>=2) out.push({n:cv.n, per:0, name:cv.n+' : '+beats, cross:true});
+  return out;
+}
+function drawLanes(){
+  var w=sizeCircle(); if(!w) return;
+  cx.clearRect(0,0,w,w);
+  var barDur=(60/bpm)*beats, ph=0;
+  if(playing && actx && curBarStart>=0){ ph=((actx.currentTime-curBarStart)/barDur)%1; if(ph<0) ph=0; }
+
+  var lanes=laneSet(), L=lanes.length;
+  var topY=w*0.06, strikeY=w*0.795, labY=w*0.86;
+  var LOOK=2;                                  // bars of future on screen
+  var laneW=w/L;
+  function yOf(u){ return strikeY-(u/LOOK)*(strikeY-topY); }
+
+  // the well each lane falls down
+  for(var li=0;li<L;li++){
+    var x0=li*laneW;
+    var g=cx.createLinearGradient(0,topY,0,strikeY);
+    g.addColorStop(0,'rgba(255,255,255,0)');
+    g.addColorStop(1,'rgba(255,255,255,0.028)');
+    cx.fillStyle=g; cx.fillRect(x0+1,topY,laneW-2,strikeY-topY);
+    if(li>0){
+      cx.strokeStyle='rgba(198,180,152,.07)'; cx.lineWidth=1;
+      cx.beginPath(); cx.moveTo(x0,topY); cx.lineTo(x0,strikeY); cx.stroke();
+    }
+  }
+
+  // beat rules, scrolling down with time — the shared clock all lanes obey
+  for(var bb=0;bb<=LOOK+1;bb++){
+    for(var kk=0;kk<beats;kk++){
+      var ug=bb+kk/beats-ph;
+      if(ug<0||ug>LOOK) continue;
+      var yg=yOf(ug), one=(kk===0);
+      cx.strokeStyle=one?'rgba(224,178,78,.20)':'rgba(198,180,152,.065)';
+      cx.lineWidth=one?1.2:1;
+      cx.beginPath(); cx.moveTo(0,yg); cx.lineTo(w,yg); cx.stroke();
+      if(one){
+        cx.fillStyle='rgba(224,178,78,.42)';
+        cx.font='400 8px Futura, "Century Gothic", sans-serif';
+        cx.textAlign='left'; cx.fillText('1', 3, yg-3);
+      }
+    }
+  }
+
+  // the notes
+  for(var l2=0;l2<L;l2++){
+    var ln=lanes[l2], n=ln.n, cxr=(l2+0.5)*laneW;
+    var hue=ln.cross?hueOf(n,96):null;
+    var noteW=Math.min(laneW*0.62, 34);
+    // dense lanes thin out — past a few hundred capsules it's mush anyway
+    var skip=Math.max(1, Math.ceil((n*(LOOK+1))/240));
+    for(var b2=0;b2<=LOOK+1;b2++){
+      for(var j=0;j<n;j++){
+        var onBeat=ln.cross?(j===0):((j%ln.per)===0);
+        if(!onBeat && (j%skip)!==0) continue;
+        var u=b2+j/n-ph;
+        if(u<-0.05||u>LOOK) continue;
+        var y=yOf(u);
+        var prox=playing?Math.max(0,1-Math.abs(u)*9):0;
+        var depth=Math.max(0.22,1-u/(LOOK+0.4));
+        var first=(j===0);
+        var col, alpha, hh;
+        if(hue!=null){ col='hsla('+hue.toFixed(1)+',64%,'+(first?70:58)+'%,1)'; }
+        else col=first?'#e0b24e':(onBeat?'#d9be85':'#5f6d7a');
+        if(prox>0.6) col='#fff6df';
+        alpha=Math.min(1,(first?0.95:onBeat?0.8:0.5)*depth+prox*0.5);
+        hh=(first?5.5:onBeat?4.5:3)*(0.7+depth*0.3)*(1+prox*0.7);
+        var ww=noteW*(first?1:onBeat?0.88:0.62)*(1+prox*0.15);
+        cx.globalAlpha=alpha; cx.fillStyle=col;
+        if(prox>0.25){                            // halo as it arrives
+          cx.globalAlpha=alpha*0.22;
+          rrect(cxr-ww/2-3, y-hh/2-3, ww+6, hh+6, (hh+6)/2); cx.fill();
+          cx.globalAlpha=alpha;
+        }
+        rrect(cxr-ww/2, y-hh/2, ww, hh, hh/2); cx.fill();
+        cx.globalAlpha=1;
+      }
+    }
+  }
+
+  // the strike line — where now is
+  cx.strokeStyle='rgba(243,212,136,.13)'; cx.lineWidth=7;
+  cx.beginPath(); cx.moveTo(0,strikeY); cx.lineTo(w,strikeY); cx.stroke();
+  cx.strokeStyle=playing?'rgba(243,212,136,.85)':'rgba(243,212,136,.4)'; cx.lineWidth=1.6;
+  cx.beginPath(); cx.moveTo(0,strikeY); cx.lineTo(w,strikeY); cx.stroke();
+
+  // lane names, under the line
+  cx.textAlign='center';
+  for(var l3=0;l3<L;l3++){
+    var ln2=lanes[l3];
+    cx.fillStyle=ln2.cross?'hsla('+hueOf(ln2.n,96).toFixed(1)+',64%,62%,.85)':'rgba(198,180,152,.5)';
+    cx.font='400 8.5px Futura, "Century Gothic", sans-serif';
+    cx.fillText(ln2.name.toUpperCase(), (l3+0.5)*laneW, labY);
+  }
+  // the readout, which lost its usual home in the middle of the face
+  cx.fillStyle='rgba(243,212,136,.9)';
+  cx.font='200 22px Futura, "Century Gothic", sans-serif';
+  cx.fillText(String(bpm), w/2, w*0.955);
+  cx.fillStyle='rgba(143,136,122,.75)';
+  cx.font='400 8px Futura, "Century Gothic", sans-serif';
+  cx.fillText(beats+'/4  ·  '+subName(sub).toUpperCase()+(swing.on&&sub%2===0?'  ·  SWUNG':''), w/2, w*0.985);
+}
+function rrect(x,y,ww,hh,r){
+  if(cx.roundRect){ cx.beginPath(); cx.roundRect(x,y,ww,hh,r); return; }
+  cx.beginPath();
+  cx.moveTo(x+r,y); cx.lineTo(x+ww-r,y); cx.quadraticCurveTo(x+ww,y,x+ww,y+r);
+  cx.lineTo(x+ww,y+hh-r); cx.quadraticCurveTo(x+ww,y+hh,x+ww-r,y+hh);
+  cx.lineTo(x+r,y+hh); cx.quadraticCurveTo(x,y+hh,x,y+hh-r);
+  cx.lineTo(x,y+r); cx.quadraticCurveTo(x,y,x+r,y);
+  cx.closePath();
+}
+
 // ── boot ───────────────────────────────────────────────
 resetPattern(); buildGrid(); buildVoiceUI(); buildKits(); buildCross(); updateSwingHint(); updateLadStatus(); updateStatus();
+paintSound();
 var boot=loadStore().last; if(boot) applySnapshot(boot);
 buildCross();
 sizeCircle();
 if(loadStore().viz) setViz(loadStore().viz);
 renderMems();
+// the accent strip sits under the face now — measure it once the layout has
+// actually happened, or the first build sizes itself against a zero-width box
+requestAnimationFrame(function(){ buildGrid(); });
 })();
 </script>
 </body>
