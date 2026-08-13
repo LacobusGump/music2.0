@@ -633,6 +633,13 @@ var VOICE_SOUNDS=[{id:'kick',name:'Kick'},{id:'snare',name:'Snare'},{id:'hat',na
 // ── scheduler (audio-clock lookahead) ──
 var cellIndex=0, nextTime=0, timer=null;
 var visQ=[], flashQ=[], barVisQ=[];
+// One bar's worth of ramp. This used to live inline inside schedule(), which
+// meant the bounce trainer — which runs its own scheduler — never ramped at
+// all. Both schedulers call this now, so there's one place for it to be right.
+function rampOneBar(){
+  if(accel.on && bpm<accel.target){ bpm=Math.min(accel.target, bpm+accel.rate); setBpm(bpm,true); }
+  else if(decel.on && bpm>decel.floor){ bpm=Math.max(decel.floor, bpm-decel.rate); setBpm(bpm,true); }
+}
 function swungThisBar(barNo){
   if(!swing.on || sub%2!==0) return false;
   if(!swing.alt) return true;
@@ -672,8 +679,7 @@ function schedule(){
     nextTime+=dur;
     cellIndex++;
     if(cellIndex%total===0){
-      if(accel.on && bpm<accel.target){ bpm=Math.min(accel.target, bpm+accel.rate); setBpm(bpm,true); }
-      else if(decel.on && bpm>decel.floor){ bpm=Math.max(decel.floor, bpm-decel.rate); setBpm(bpm,true); }
+      rampOneBar();
       if(ladder.on){
         if(++ladder.barsDone>=ladder.repeats){
           ladder.barsDone=0;
@@ -757,6 +763,9 @@ function bounceSchedule(){
       }
       bounceVisQ.push({time:t2, idx:j});
     }
+    // ramp AFTER the bar is laid out — the bar just scheduled keeps the length
+    // it was written at, and the next one picks up the new tempo
+    rampOneBar();
     bounce.barTime += barDur; bounce.bar++;
   }
 }
@@ -905,14 +914,18 @@ window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(fun
 var curFeel=false;
 function subName(n){ for(var i=0;i<SUBS.length;i++) if(SUBS[i].n===n) return SUBS[i].name; return n+'/beat'; }
 function updateStatus(){
-  $('s1').innerHTML='<b>'+beats+'/4</b> · '+subName(sub);
+  // The bounce trainer runs its own scheduler: the pulse is its Count, not the
+  // meter's subdivision, and it lays out neither swing nor the Euclidean
+  // layers. So the readout must stop advertising them while it's on.
+  $('s1').innerHTML='<b>'+beats+'/4</b> · '+subName(bounce.on?bounce.count:sub);
   var bits=[];
-  if(swing.on && sub%2===0){
+  if(bounce.on){ bits.push(swing.on?'swing n/a':'straight'); }
+  else if(swing.on && sub%2===0){
     if(playing && swing.alt) bits.push('<span class="'+(curFeel?'sw':'')+'">'+(curFeel?'swung':'straight')+'</span>');
     else bits.push('<span class="sw">'+(swing.alt?'alternating':'swung')+'</span>');
   } else if(swing.on){ bits.push('swing n/a'); }
   else bits.push('straight');
-  if(voices[3] && voices[3].on) bits.push(voices[3].n+':'+beats);
+  if(!bounce.on && voices[3] && voices[3].on) bits.push(voices[3].n+':'+beats);
   if(clickMute) bits.push('click off');
   if(ladder.on) bits.push('ladder');
   if(accel.on) bits.push('→'+accel.target);
