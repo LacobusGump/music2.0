@@ -45,9 +45,19 @@ function _plus(a, b) {
 
 // Framework primitives
 function K(x) { x = _num(x); return x / (1 + x); }
-function R(x) { x = _num(x); return 1 / (1 + 1 / Math.max(0.001, x)); }
+// NOTE: 1/(1 + 1/x) is x/(1+x) after multiplying through by x — this is K,
+// exactly, at every input. Kept only so existing scripts keep running.
+// Synchronisation is a property of a population, not of one number: pass a
+// list and R gives you the order parameter, which is the real reading.
+function _scalarR(x) { x = _num(x); return 1 / (1 + 1 / Math.max(0.001, x)); }
+function R(x) { return Array.isArray(x) ? kuramoto_R(x) : _scalarR(x); }
 function E(x) { return _num(x) * 2.87e-21; }
-function T(x) { x = _num(x); return Math.max(0, K(x) - R(x)); }
+// T(k, population): coupling spent that bought no order. One number in and it
+// returns 0, as it always has, because K and the scalar R are one function.
+function T(x, items) {
+  if (items === undefined) { x = _num(x); return Math.max(0, K(x) - _scalarR(x)); }
+  return Math.max(0, K(_num(x)) - kuramoto_R(items));
+}
 
 // Math
 function abs(x) { return Math.abs(_num(x)); }
@@ -125,10 +135,42 @@ function range(...args) {
 function kuramoto_R(thetas) {
   thetas = _list(thetas, 'kuramoto_R');
   if (thetas.length === 0) return 0;
+  // a list of vectors is the same measurement in n dimensions — normalise each
+  // one and take the length of the mean. This is the embedding case.
+  if (Array.isArray(thetas[0])) return _vectorR(thetas);
   let cx = 0, sy = 0;
   for (const t of thetas) { cx += Math.cos(_num(t)); sy += Math.sin(_num(t)); }
   cx /= thetas.length; sy /= thetas.length;
   return Math.sqrt(cx * cx + sy * sy);
+}
+function _vectorR(vecs) {
+  const dim = vecs[0].length;
+  if (!dim) return 0;
+  const acc = new Array(dim).fill(0);
+  let used = 0;
+  for (const v of vecs) {
+    if (!Array.isArray(v) || v.length !== dim) throw new Error('order: vectors must be lists of the same length');
+    let n2 = 0;
+    for (let i = 0; i < dim; i++) n2 += _num(v[i]) * _num(v[i]);
+    const norm = Math.sqrt(n2);
+    if (norm === 0) continue;              // a zero vector points nowhere; it can't vote
+    for (let i = 0; i < dim; i++) acc[i] += _num(v[i]) / norm;
+    used++;
+  }
+  if (!used) return 0;
+  let s = 0;
+  for (let i = 0; i < dim; i++) s += (acc[i] / used) * (acc[i] / used);
+  return Math.sqrt(s);
+}
+function order(items) { return kuramoto_R(items); }
+function spread(items) { return 1 - kuramoto_R(items); }
+function psi(thetas) {
+  thetas = _list(thetas, 'psi');
+  if (thetas.length === 0) return 0;
+  if (Array.isArray(thetas[0])) throw new Error('psi: mean phase is undefined for vectors — use order()');
+  let cx = 0, sy = 0;
+  for (const t of thetas) { cx += Math.cos(_num(t)); sy += Math.sin(_num(t)); }
+  return Math.atan2(sy / thetas.length, cx / thetas.length);
 }
 function phase_diff(a, b) {
   let d = (_num(a) - _num(b)) % (2 * Math.PI);

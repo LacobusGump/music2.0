@@ -568,18 +568,111 @@ def k_func(x):
     return x / (1 + x)
 
 
-def r_func(x):
+def _scalar_r(x):
+    """The original scalar R.
+
+    NOTE, and this is load-bearing: 1/(1 + 1/x) is x/(1+x) after multiplying
+    top and bottom by x. It is K, exactly, at every input — not a second
+    function. It is kept only so existing scripts keep running. Anything that
+    actually wants synchronisation wants order() below, which measures a
+    population and cannot be written as a function of one number.
+    """
     x = _to_num(x)
     return 1 / (1 + 1 / max(0.001, x))
+
+
+def order(items):
+    """The Kuramoto order parameter — how aligned a population is, 0..1.
+
+    R e^{i psi} = (1/N) sum e^{i theta_j}: drop a unit vector for each member,
+    average them, measure how long the average is. All pointing the same way
+    and it survives at length 1. Scattered evenly and they cancel to 0.
+
+    Takes a list of phases in radians, or a list of vectors (each a list of
+    numbers), which is the case that matters for embeddings — there the unit
+    vectors are the normalised vectors themselves and the resultant length is
+    the same quantity in n dimensions.
+    """
+    if not isinstance(items, list) or not items:
+        raise TypeError('order: expected a non-empty list of phases or vectors')
+    if isinstance(items[0], list):
+        return _vector_order(items)
+    n = len(items)
+    c = sum(math.cos(_to_num(t)) for t in items) / n
+    s = sum(math.sin(_to_num(t)) for t in items) / n
+    return math.hypot(c, s)
+
+
+def _vector_order(vecs):
+    dim = len(vecs[0])
+    if dim == 0:
+        raise TypeError('order: vectors must not be empty')
+    acc = [0.0] * dim
+    used = 0
+    for v in vecs:
+        if not isinstance(v, list) or len(v) != dim:
+            raise TypeError('order: all vectors must be lists of the same length')
+        nums = [_to_num(a) for a in v]
+        norm = math.sqrt(sum(a * a for a in nums))
+        if norm == 0:
+            continue                       # a zero vector points nowhere; it can't vote
+        for i in range(dim):
+            acc[i] += nums[i] / norm
+        used += 1
+    if used == 0:
+        return 0.0
+    return math.sqrt(sum((a / used) ** 2 for a in acc))
+
+
+def psi(items):
+    """The mean phase — which way the population is actually pointing.
+
+    Only meaningful for 1-D phases; a direction in n dimensions is a vector,
+    not an angle. Returns radians in (-pi, pi].
+    """
+    if not isinstance(items, list) or not items:
+        raise TypeError('psi: expected a non-empty list of phases')
+    if isinstance(items[0], list):
+        raise TypeError('psi: mean phase is undefined for vectors — use order()')
+    n = len(items)
+    c = sum(math.cos(_to_num(t)) for t in items) / n
+    s = sum(math.sin(_to_num(t)) for t in items) / n
+    return math.atan2(s, c)
+
+
+def r_func(x):
+    """R — scalar in, scalar out (legacy); list in, order parameter out."""
+    if isinstance(x, list):
+        return order(x)
+    return _scalar_r(x)
 
 
 def e_func(x):
     return _to_num(x) * 2.87e-21  # Landauer: kT*ln(2) at 300K
 
 
-def t_func(x):
-    x = _to_num(x)
-    return max(0.0, k_func(x) - r_func(x))
+def t_func(x, items=None):
+    """T — coupling spent that bought no order.
+
+    T(k, population): how hard you are pushing, K(k), minus the order you
+    actually got. A swarm driven hard that still will not lock reads high;
+    one that locks cheaply reads ~0. Both arguments have to be there for this
+    to say anything — k is an external input, not something the population
+    implies, which is the whole reason the reading is informative.
+
+    T(x) with one number returns 0.0 and always has, because K and the scalar
+    R are the same function (see _scalar_r). Left alone rather than guessed
+    at: what a one-number T should mean is your call, not mine.
+    """
+    if items is None:
+        x = _to_num(x)
+        return max(0.0, k_func(x) - _scalar_r(x))
+    return max(0.0, k_func(x) - order(items))
+
+
+def _spread(items):
+    """Circular variance of a population, 0 (locked) .. 1 (scattered)."""
+    return 1.0 - order(items)
 
 
 PHI = (1 + math.sqrt(5)) / 2
@@ -854,6 +947,8 @@ def _is_truthy(v):
 BUILTINS = {
     # Framework primitives
     'K': k_func, 'R': r_func, 'E': e_func, 'T': t_func,
+    # synchronisation over a population — the reading a swarm actually needs
+    'order': order, 'psi': psi, 'spread': _spread,
     # Constants
     'phi': PHI, 'pi': math.pi, 'e': math.e,
     'K_c': K_C, 'K_BKT': K_BKT, 'INV_PHI': INV_PHI, 'alpha': ALPHA,
@@ -1047,5 +1142,6 @@ def compile_k(expression):
 __all__ = [
     'evaluate', 'parse', 'run', 'compile_k',
     'Env', 'Closure', 'BUILTINS',
+    'order', 'psi',
     'K_C', 'K_BKT', 'PHI', 'INV_PHI', 'ALPHA',
 ]
