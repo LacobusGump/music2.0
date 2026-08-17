@@ -22,7 +22,7 @@ body{
   background:var(--bg); color:var(--ink);
   font-family:Futura,'Century Gothic','Avenir Next',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   overflow:hidden; user-select:none; -webkit-user-select:none;
-  display:flex; flex-direction:column;
+  display:flex; flex-direction:column; position:relative;
   height:100dvh; max-width:560px; margin:0 auto;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
@@ -110,8 +110,41 @@ body.sideB .nt.acc{background:var(--cyan);color:#0a1418;}
 .stepv{min-width:30px;text-align:center;font-size:1.05rem;font-variant-numeric:tabular-nums;}
 .key.tapkey{flex:1;min-height:44px;padding:7px 10px;font-size:.8rem;}
 
+/* ── the sheet ─────────────────────────────────────────
+   A phone can't show the face and the controls at once — the face alone is
+   39dvh, and what was left for the controls was about two buttons tall. So
+   the controls ride OVER the face on a sheet with three heights: resting,
+   half, and nearly full. The page still never scrolls; the sheet moves and
+   the pad scrolls inside it. The transport never moves at any height. */
+.spacer{flex:1 1 auto;min-height:0;}
+.sheet{
+  position:absolute;left:0;right:0;bottom:var(--tr,90px);
+  height:var(--sh,132px);
+  display:flex;flex-direction:column;z-index:5;
+  background:var(--bg);border-top:1px solid var(--edge);
+  border-radius:17px 17px 0 0;
+  box-shadow:0 -16px 36px rgba(0,0,0,.6);
+}
+.sheet.anim{transition:height .3s cubic-bezier(.32,.72,0,1);}
+.grab{position:relative;flex:0 0 auto;height:30px;display:flex;align-items:center;justify-content:center;
+  cursor:grab;touch-action:none;}
+.grab:active{cursor:grabbing;}
+.grabbar{width:40px;height:4px;border-radius:2px;background:#2e333b;transition:background .18s,width .18s;}
+.grab:active .grabbar{background:var(--gold);width:52px;}
+/* tempo is the one control you should never have to close a panel to reach,
+   so it rides on the handle whenever the sheet is covering the real one */
+.shtempo{position:absolute;right:var(--pad);top:50%;transform:translateY(-50%);
+  display:flex;align-items:center;gap:7px;opacity:0;pointer-events:none;transition:opacity .2s;}
+body.sheetup .shtempo{opacity:1;pointer-events:auto;}
+.shtempo .step{width:30px;height:26px;font-size:.95rem;border-radius:8px;}
+.shbpm{min-width:32px;text-align:center;font-size:.95rem;color:var(--ember);font-variant-numeric:tabular-nums;}
+/* the face recedes but never goes away — you can still watch it while you work */
+.stage,.accentwrap,.tempoarea{transition:opacity .25s;}
+body.sheetup .stage{opacity:.66;}
+body.sheetup .accentwrap,body.sheetup .tempoarea{opacity:0;pointer-events:none;}
+
 /* ── mode tabs ────────────────────────────────────────── */
-.tabs{flex:0 0 auto;display:flex;margin:10px var(--pad) 0;border-bottom:1px solid var(--edge);}
+.tabs{flex:0 0 auto;display:flex;margin:2px var(--pad) 0;border-bottom:1px solid var(--edge);}
 .tab{
   flex:1;background:none;border:none;cursor:pointer;padding:10px 2px 9px;position:relative;
   font-family:inherit;font-size:.6rem;letter-spacing:.19em;text-transform:uppercase;color:var(--faint);transition:color .18s;
@@ -289,6 +322,19 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
   </div>
 </div>
 
+<div class="spacer"></div>
+
+<div class="sheet" id="sheet">
+
+<div class="grab" id="grab">
+  <div class="grabbar"></div>
+  <div class="shtempo">
+    <button class="step" id="shDn" aria-label="slower">−</button>
+    <span class="shbpm" id="shBpm">120</span>
+    <button class="step" id="shUp" aria-label="faster">+</button>
+  </div>
+</div>
+
 <div class="tabs">
   <button class="tab on" data-panel="rhythm">Rhythm<i id="dotRhythm"></i></button>
   <button class="tab" data-panel="train">Train<i id="dotTrain"></i></button>
@@ -383,7 +429,8 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
     </div>
   </div>
 
-</div>
+</div><!-- /pad -->
+</div><!-- /sheet -->
 
 <!-- holds the audio session open so the OS shows transport controls and the
      count survives a backgrounded tab. Silence — the clicks go out the direct
@@ -908,7 +955,7 @@ $('grid').addEventListener('click',function(e){
 });
 var rz;
 window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(function(){
-  buildGrid(); if(bounce.on && lastBFig) renderStick(FIGMAP[lastBFig]); },150); });
+  buildGrid(); if(bounce.on && lastBFig) renderStick(FIGMAP[lastBFig]); measureDetents(); },150); });
 
 // ── the readout (centre of the circle) ─────────────────
 var curFeel=false;
@@ -947,8 +994,93 @@ function flashStatus(msg){
     [].forEach.call(document.querySelectorAll('.tab'),function(x){ x.classList.toggle('on',x===t); });
     [].forEach.call(document.querySelectorAll('.panel'),function(p){ p.classList.toggle('on',p.id===t.dataset.panel+'Panel'); });
     document.querySelector('.pad').scrollTop=0;
+    raiseSheet();                       // reaching for a tab means you want room
   };
 });
+
+// ── the sheet ──────────────────────────────────────────
+// Three heights, measured rather than hard-coded: the first is whatever fits
+// without covering anything (on a desktop that's the whole panel, so the page
+// looks exactly as it did), then half the screen, then nearly full. Drag the
+// handle, tap it to step up, or pull down inside the pad when it's at its top.
+var sheetEl=$('sheet'), grabEl=$('grab'), padEl=document.querySelector('.pad');
+var dets=[132], detIdx=0;
+
+function measureDetents(){
+  var vh=document.documentElement.clientHeight;
+  var tr=document.querySelector('.transport').offsetHeight;
+  var top=0;
+  ['.chrome','.stage','.accentwrap','.stickwrap','.tempoarea'].forEach(function(s){
+    var el=document.querySelector(s);
+    if(el && el.offsetParent!==null) top+=el.offsetHeight;
+  });
+  var rest=Math.max(vh-top-tr,132);          // what fits without covering the face
+  var half=Math.max(rest,Math.round(vh*0.55));
+  var full=Math.max(half,vh-tr-108);         // stops clear of the 3D and sound keys
+  dets=[rest];
+  if(half-rest>28) dets.push(half);
+  if(full-dets[dets.length-1]>28) dets.push(full);
+  if(detIdx>dets.length-1) detIdx=dets.length-1;
+  document.body.style.setProperty('--tr',tr+'px');
+  sizeSheet(dets[detIdx],false);
+}
+function sizeSheet(px,animate){
+  sheetEl.classList.toggle('anim',!!animate);
+  sheetEl.style.setProperty('--sh',Math.round(px)+'px');
+  document.body.classList.toggle('sheetup',px>dets[0]+8);
+}
+function goDetent(i,store){
+  detIdx=Math.max(0,Math.min(dets.length-1,i));
+  sizeSheet(dets[detIdx],true);
+  if(store!==false){ var st=loadStore(); st.sheet=detIdx; writeStore(st); }
+}
+function raiseSheet(){ if(detIdx===0 && dets.length>1) goDetent(1); }
+
+var dragY=0, dragH=0, dragMoved=0, lastY=0, lastT=0, flick=0, dragging=false;
+grabEl.addEventListener('pointerdown',function(e){
+  dragging=true; dragMoved=0; flick=0;
+  dragY=e.clientY; lastY=e.clientY; lastT=performance.now();
+  dragH=sheetEl.getBoundingClientRect().height;
+  sheetEl.classList.remove('anim');
+  if(grabEl.setPointerCapture) grabEl.setPointerCapture(e.pointerId);
+});
+grabEl.addEventListener('pointermove',function(e){
+  if(!dragging) return;
+  var d=dragY-e.clientY;
+  dragMoved=Math.max(dragMoved,Math.abs(d));
+  var h=dragH+d, lo=dets[0], hi=dets[dets.length-1];
+  if(h<lo) h=lo-(lo-h)*0.35;                 // rubber band past the ends
+  if(h>hi) h=hi+(h-hi)*0.35;
+  sizeSheet(h,false);
+  var now=performance.now(), dt=now-lastT;
+  if(dt>4){ flick=(lastY-e.clientY)/dt; lastY=e.clientY; lastT=now; }
+});
+function endDrag(){
+  if(!dragging) return;
+  dragging=false;
+  if(dragMoved<6){ goDetent((detIdx+1)%dets.length); return; }   // a tap steps up
+  var h=sheetEl.getBoundingClientRect().height + flick*220;        // flick carries it
+  var best=0, bd=1e9;
+  dets.forEach(function(d,i){ var dd=Math.abs(d-h); if(dd<bd){ bd=dd; best=i; } });
+  goDetent(best);
+}
+grabEl.addEventListener('pointerup',endDrag);
+grabEl.addEventListener('pointercancel',endDrag);
+
+// pulling down inside the pad, once it's already scrolled to its top, lowers
+// the sheet a step — the usual hand-off, so you never have to find the handle
+var padTrack=false, padY=0;
+padEl.addEventListener('touchstart',function(e){
+  padTrack=(padEl.scrollTop<=0 && e.touches.length===1);
+  padY=e.touches[0].clientY;
+},{passive:true});
+padEl.addEventListener('touchmove',function(e){
+  if(!padTrack || detIdx===0) return;
+  if(e.touches[0].clientY-padY>46){ padTrack=false; goDetent(detIdx-1); }
+},{passive:true});
+
+$('shUp').onclick=function(){ setBpm(bpm+1); };
+$('shDn').onclick=function(){ setBpm(bpm-1); };
 
 // ── option keys ────────────────────────────────────────
 (function(){
@@ -981,6 +1113,7 @@ function setSub(n){
 function setBpm(v,fromAccel){
   bpm=Math.max(30,Math.min(300,Math.round(v)));
   $('bpm').textContent=bpm;
+  $('shBpm').textContent=bpm;
   if(!fromAccel){ $('tempo').value=bpm; save(); }
 }
 $('tempo').addEventListener('input',function(){ setBpm(+this.value); });
@@ -1107,6 +1240,7 @@ function setDrill(which){
   if(bounce.on) bouncePreview();
   if(ladder.on){ ladderReset(); updateLadStatus(); if(!playing) ladderApply(); }
   updateStatus();
+  measureDetents();          // the sticking strip and the smaller face change what fits
   if(playing){ stop(); start(); }
   save();
 }
@@ -2334,7 +2468,11 @@ if(loadStore().viz) setViz(loadStore().viz);
 renderMems();
 // the accent strip sits under the face now — measure it once the layout has
 // actually happened, or the first build sizes itself against a zero-width box
-requestAnimationFrame(function(){ buildGrid(); });
+requestAnimationFrame(function(){
+  buildGrid();
+  detIdx=loadStore().sheet|0;      // reopen at the height you left it, unanimated
+  measureDetents();
+});
 })();
 </script>
 </body>
