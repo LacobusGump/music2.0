@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 var p=location.pathname;
-if(p!=='/research/the-grace-gate/'&&p!=='/research/the-grace-gate/index.html')return;
+if(p!==''&&p!=='/research/the-grace-gate/index.html')return;
 function swap(s){
   return String(s||'')
     .replace(/\bloved\b/g,'coupled')

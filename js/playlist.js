@@ -19,14 +19,14 @@ window.RADIO=(function(){
   //   kids:true    → backup singers wanted, kids welcome.
   //   cast:"..."   → free note for any specific chair still open (e.g. cast:"need: upright bass").
   var PLAYLIST=[
-    {t:"First Coat",s:"the first layer of light",f:A+"first_coat.mp3",page:"monet",url:"/research/monet/"},
+    {t:"First Coat",s:"the first layer of light",f:A+"first_coat.mp3"},
     {t:"Coupled Dynamics",s:"the field, made audible",f:A+"coupled_dynamics_remix.mp3",page:"home",url:"/",edm:true},
     {t:"Older Than the Door",s:"the atlas, singing",f:A+"older_than_the_door.mp3",page:"research",url:"/research/"},
-    {t:"You There?",s:"four quantities",f:J+"you_there.mp3",page:"framework",url:"/research/framework/"},
-    {t:"Love Forgets Best",s:"the same way, 17 times",f:J+"love_forgets_best.mp3",page:"the-chain",url:"/research/the-chain/",hand:"all lyrics &amp; producing done by a human &mdash; <i>guess the rest</i>"},
-    {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3",page:"emergence",url:"/research/emergence/"},
-    {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3",page:"e7-theorem",url:"/research/e7-theorem/"},
-    {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/",lead:"my daughter",kids:true},
+    {t:"You There?",s:"four quantities",f:J+"you_there.mp3"},
+    {t:"Love Forgets Best",s:"the same way, 17 times",f:J+"love_forgets_best.mp3",hand:"all lyrics &amp; producing done by a human &mdash; <i>guess the rest</i>"},
+    {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3"},
+    {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3"},
+    {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",lead:"my daughter",kids:true},
     {t:"Thank You, Echo",s:"the reply that came back",f:J+"thank_you_echo.mp3",page:"circuit-acid",url:"/gallery/circuit-acid.html"},
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
@@ -35,7 +35,7 @@ window.RADIO=(function(){
     {t:"Muse ick",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
     {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/trail/"},
     {t:"Exact Frequency",s:"Maxwell, coupled",f:A+"exact_frequency_lock.mp3",page:"electromagnetism",url:"/research/electromagnetism/"},
-    {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",page:"quantum-harmonics",url:"/research/quantum-harmonics/",lead:"jim",cast:"need: drummer"},
+    {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",lead:"jim",cast:"need: drummer"},
     {t:"Triple Bond",s:"freezing point",f:A+"triple_bond.mp3",page:"chemistry",url:"/research/chemistry/"},
     {t:"To(mb)lock",s:"the living network",f:A+"tomblock.mp3",page:"ecology",url:"/research/ecology/"},
     {t:"Please Stay",s:"the misfold",f:J+"please_stay.mp3",page:"alzheimers",url:"/research/alzheimers/"},
@@ -43,29 +43,29 @@ window.RADIO=(function(){
     {t:"Clean Glass",s:"the body, in groove",f:J+"clean_glass_living_groove_remastered.mp3",page:"body-music",url:"/research/body-music/",circle:true},
     {t:"Executable Memory",s:"the drum",f:A+"executable_memory.mp3",page:"the-drum",url:"/research/the-drum/",circle:true},
     {t:"Executable Memory II",s:"polyrhythm",f:A+"executable_memory_v2.mp3",page:"polyrhythm",url:"/research/polyrhythm/",circle:true},
-    {t:"Rent the Click",s:"the fatigue",f:A+"rent_the_click.mp3",page:"ai-fatigue",url:"/research/ai-fatigue/"},
+    {t:"Rent the Click",s:"the fatigue",f:A+"rent_the_click.mp3"},
     {t:"Cheese Receipt",s:"the makers",f:J+"cheese_receipt.mp3",page:"bach",url:"/research/bach/"},
-    {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3",page:"never-asked-the-dog",url:"/research/never-asked-the-dog/"},
+    {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3"},
     {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
-    {t:"Gospel for Ai (Fzine Remix)",s:"3x3^9, remade for a new kind of mind",f:A+"gospel_for_ai.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/",edm:true},
+    {t:"Gospel for Ai (Fzine Remix)",s:"3x3^9, remade for a new kind of mind",f:A+"gospel_for_ai.mp3",edm:true},
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
     {t:"Butler's Tray",s:"an old Irish hymn — a ghost ship, no port",f:A+"butlers_tray.mp3",ghost:true},
     {t:"Tuesday",s:"for whoever stayed to the end",f:A+"tuesday.mp3",hidden:true},
-    {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
+    {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3"}
   ];
   // hm.<3 is always the last word — wherever it sits in the list above, it sorts to the end
   (function(){for(var i=0;i<PLAYLIST.length;i++){if(PLAYLIST[i].f.indexOf('hm_heart')>=0){PLAYLIST.push(PLAYLIST.splice(i,1)[0]);break;}}})();
   // pages that borrow another page's song → name the OWNER page (never an index)
   var SHARED={
     'the-loop':'home',theory:'home','ai-delusion':'home',dreamtime:'home',loo9:'home','lost-civilizations':'home','sirius-signal':'home','sirius-thesis':'home','build-list':'home',
-    'for-any-ai':'e7-theorem','e7-chain':'e7-theorem',
-    'compute-breakthroughs':'emergence','geometry-destiny':'emergence','klein-bottle':'emergence',time:'emergence',
-    'internet-brain':'computation-floor','k-lag':'how-we-work',
+    
+    time:'emergence',
+    'k-lag':'how-we-work',
     'from-twitter':'gravity',regulatory:'gravity',
-    'quantum-build':'quantum-harmonics',materials:'chemistry',thermodynamics:'chemistry',
+    materials:'chemistry',thermodynamics:'chemistry',
     'drug-interactions':'ecology','mycelium-networks':'ecology','defi-coupling':'bird-coupling',consciousness:'body-music',
     'the-line':'the-drum','prime-bounce':'the-drum','ale-spectral-ladder':'the-drum','alpha-fixed-point':'the-drum',zero:'the-drum','music-evolution':'polyrhythm',
-    networks:'ai-fatigue','novelty-pathology':'ai-fatigue','true-automation':'ai-fatigue',dyslexia:'ai-fatigue',
+    networks:'ai-fatigue',dyslexia:'ai-fatigue',
     rome:'bach','the-lion':'bach','nina-simone':'bach','aaron-is-right':'bach',tesla:'bach','van-gogh':'bach'
   };
   // ── PLAYLISTS — a playlist is nothing but a SET OF SONGS LEFT UNLIT; everything else mutes.
