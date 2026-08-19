@@ -88,7 +88,7 @@ body.sideB .dside{background:rgba(126,180,201,.15);color:#a9d4e4;border-color:#5
 .stickwrap{flex:0 0 auto;display:none;margin:7px var(--pad) 0;}
 body.bouncemode .stickwrap{display:block;}
 body.bouncemode #circle{width:min(74vw,31dvh);}
-.stick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;}
+#stickCv{display:block;width:100%;height:58px;}
 .sbeat{display:flex;gap:2px;padding:3px 5px;border-radius:8px;background:rgba(255,255,255,.017);border:1px solid rgba(255,255,255,.035);}
 .nt{
   position:relative;min-width:21px;padding:3px 2px;border-radius:5px;text-align:center;
@@ -374,7 +374,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
     </div>
   </div>
 </div>
-<div class="stickwrap"><div class="stick" id="stick"></div></div>
+<div class="stickwrap"><canvas id="stickCv"></canvas></div>
 
 <div class="views">
 
@@ -925,7 +925,7 @@ function bounceSchedule(){
   while(bounce.barTime < actx.currentTime + 0.2){
     var bar=bounce.bar, w=figureForBar(bar), fig=w.fig;
     var barStart=bounce.barTime, barDur=(60/bpm)*beats;
-    bounceVisQ.push({time:barStart, barStart:true, side:w.side, left:w.left, figId:fig.id, nextName:w.next.name});
+    bounceVisQ.push({time:barStart, barStart:true, bar:bar, dur:barDur, side:w.side, left:w.left, figId:fig.id, nextName:w.next.name});
     // steady count
     var cs=bounce.count, ctotal=beats*cs;
     if(!clickMute) for(var k=0;k<ctotal;k++) countClick(barStart + k*barDur/ctotal, (k%cs)===0);
@@ -950,10 +950,103 @@ function bounceSchedule(){
   }
 }
 
+// ── the scrolling strip ────────────────────────────────
+// The hand sequence travelling right-to-left past a fixed playhead, drawn on
+// the audio clock so it cannot drift from what you hear. You see roughly a
+// bar ahead, which is the point — a rudiment is unplayable if you only learn
+// what it was after it happened.
+var scv=null, sctx=null, curBarIdx=0, curBarDur=0;
+var PLAYHEAD=0.30;                      // where "now" sits across the strip
+function sizeStick(){
+  if(!scv) scv=$('stickCv');
+  if(!scv) return 0;
+  sctx=sctx||scv.getContext('2d');
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  var w=Math.round(scv.clientWidth), h=58;
+  if(!w) return 0;
+  if(scv.width!==Math.round(w*dpr)){ scv.width=Math.round(w*dpr); scv.height=Math.round(h*dpr); }
+  sctx.setTransform(dpr,0,0,dpr,0,0);
+  return w;
+}
+function drawStick(){
+  var w=sizeStick(); if(!w||!sctx) return;
+  var h=58, mid=h*0.56;
+  sctx.clearRect(0,0,w,h);
+  if(!bounce.on){ return; }
+
+  // one bar spans a bit more than the strip, but never so tight that the
+  // glyphs collide — a dense figure simply scrolls faster and you see less of
+  // it at once, which is the honest trade
+  var nNow=beats*figureForBar(curBarIdx).fig.sub;
+  var pxBar=Math.max(w*1.15, nNow*17);
+  var px=Math.round(w*PLAYHEAD);
+  var prog=0;
+  if(playing && actx && curBarDur>0) prog=Math.max(0,Math.min(1.2,(actx.currentTime-curBarStart)/curBarDur));
+
+  // two bars: the one under the playhead and the one arriving
+  for(var b=0;b<2;b++){
+    var wrap=figureForBar(curBarIdx+b), fig=wrap.fig;
+    var sticks=buildBarSticks(fig), n=sticks.length;
+    // bar line
+    var bx=px+(b-prog)*pxBar;
+    sctx.strokeStyle=b===0?'rgba(224,178,78,.30)':'rgba(255,255,255,.10)';
+    sctx.lineWidth=1;
+    sctx.beginPath(); sctx.moveTo(bx,10); sctx.lineTo(bx,h-8); sctx.stroke();
+    if(b===1 && wrap.fig.id!==figureForBar(curBarIdx).fig.id){
+      sctx.fillStyle='rgba(224,178,78,.55)';
+      sctx.font='600 8px Futura,system-ui,sans-serif';
+      sctx.textAlign='left';
+      sctx.fillText(fig.name.toUpperCase(), bx+5, 15);
+    }
+    for(var i=0;i<n;i++){
+      var x=px+(b+i/n-prog)*pxBar;
+      if(x<-30||x>w+30) continue;
+      var st=sticks[i], isBeat=(i%fig.sub)===0;
+      var lane=(st.s==='L')?6:-6;      // right hand rides high, left low
+      var live=(b===0 && i===stickNow);
+      if(st.s==='-'){
+        sctx.fillStyle='rgba(255,255,255,.18)';
+        sctx.beginPath(); sctx.arc(x,mid,2,0,6.283); sctx.fill();
+        continue;
+      }
+      // grace notes ride just before the hit
+      if(st.g){
+        sctx.fillStyle='rgba(255,255,255,.35)';
+        sctx.font='7px Futura,system-ui,sans-serif'; sctx.textAlign='right';
+        sctx.fillText(new Array(st.g+1).join(st.s==='R'?'L':'R'), x-7, mid+2+lane);
+      }
+      if(st.z){
+        sctx.fillStyle='rgba(255,255,255,.35)';
+        sctx.font='7px Futura,system-ui,sans-serif'; sctx.textAlign='right';
+        sctx.fillText('z', x-7, mid+2+lane);
+      }
+      // accents get a cap above the letter
+      if(st.a){
+        sctx.strokeStyle=live?'#e0b24e':(isBeat?'rgba(224,178,78,.7)':'rgba(224,178,78,.45)');
+        sctx.lineWidth=1.4;
+        sctx.beginPath(); sctx.moveTo(x-4,mid-11+lane); sctx.lineTo(x,mid-14+lane); sctx.lineTo(x+4,mid-11+lane); sctx.stroke();
+      }
+      // always uppercase: at this size a lowercase l is indistinguishable from
+      // the bar line, which is the one mistake a reading aid must not make.
+      // The accent is carried by weight, brightness and the cap above.
+      sctx.textAlign='center';
+      sctx.font=(st.a?'600 ':'400 ')+(live?'14px':'12px')+' Futura,system-ui,sans-serif';
+      sctx.fillStyle=live?'#f3d488':(st.a?'rgba(224,178,78,.95)':'rgba(196,160,136,.55)');
+      sctx.fillText(st.s, x, mid+4+lane);
+    }
+  }
+  // the playhead, last so it sits on top
+  sctx.strokeStyle='rgba(243,212,136,.9)'; sctx.lineWidth=1.5;
+  sctx.beginPath(); sctx.moveTo(px,6); sctx.lineTo(px,h-5); sctx.stroke();
+  sctx.fillStyle='rgba(243,212,136,.9)';
+  sctx.beginPath(); sctx.moveTo(px-4,6); sctx.lineTo(px+4,6); sctx.lineTo(px,11); sctx.closePath(); sctx.fill();
+}
+
 // ── sticking strip — the hand sequence, kept linear on purpose ──
 function renderStick(fig){
+  lastBFig=fig.id;                     // the strip draws itself from the clock now
   var host=$('stick'); if(!host) return;
-  host.innerHTML=''; lastBFig=fig.id;
+  host.innerHTML='';
   host.classList.toggle('dense', fig.sub>=6);
   var sticks=buildBarSticks(fig);
   for(var b=0;b<beats;b++){
@@ -990,6 +1083,7 @@ var nowCell=-1, voiceFlash={}, voicePulse={}, stickNow=-1;
 function draw(){
   requestAnimationFrame(draw);
   if(viz===1) drawViz(); else if(viz===2) drawForms(); else if(viz===3) drawLanes(); else drawCircle();
+  if(bounce.on) drawStick();
   if(!playing||!actx) return;
   var t=actx.currentTime, changed=false;
   while(visQ.length && visQ[0].time<=t){ nowCell=visQ.shift().cell; changed=true; }
@@ -1007,6 +1101,7 @@ function draw(){
     var be=bounceVisQ.shift();
     if(be.barStart){
       curBarStart=be.time;
+      if(be.bar!==undefined){ curBarIdx=be.bar; curBarDur=be.dur; }
       if(be.figId!==lastBFig){                       // the trade — flip the face
         renderStick(FIGMAP[be.figId]);
         var fl=$('flipper');
@@ -1015,11 +1110,7 @@ function draw(){
       }
       updateBounceStatus(be);
     } else {
-      if(be.idx!==stickNow){
-        stickNow=be.idx;
-        var ns=document.querySelectorAll('#stick .nt');
-        for(var si=0;si<ns.length;si++) ns[si].classList.toggle('now', +ns[si].dataset.i===stickNow);
-      }
+      stickNow=be.idx;
     }
   }
 }
@@ -1088,7 +1179,7 @@ $('grid').addEventListener('click',function(e){
 });
 var rz;
 window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(function(){
-  buildGrid(); if(bounce.on && lastBFig) renderStick(FIGMAP[lastBFig]); },150); });
+  buildGrid(); if(bounce.on && lastBFig) renderStick(FIGMAP[lastBFig]); sizeStick(); },150); });
 
 // ── the readout (centre of the circle) ─────────────────
 var curFeel=false;
@@ -1191,7 +1282,7 @@ function rangeBar(host,o){
     var v=valAt(e.clientX);
     drag=(Math.abs(v-lo)<=Math.abs(v-hi))?'lo':'hi';
     (drag==='lo'?hLo:hHi).classList.add('drag');
-    if(host.setPointerCapture) host.setPointerCapture(e.pointerId);
+    try{ if(host.setPointerCapture) host.setPointerCapture(e.pointerId); }catch(_){}   // a pointer that ended between events must not kill the drag
     onMove(e);
   });
   function onMove(e){
