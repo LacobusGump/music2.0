@@ -58,7 +58,10 @@ body.vizmode #drillLine{display:none;}
 body.vizmode.bouncemode #drillLine{display:flex;margin-top:0;}
 .flipper{position:relative;display:inline-block;transition:transform .17s ease-in;}
 .flipper.flip{transform:scaleX(.06);}
-#circle{width:min(88vw,46dvh);height:auto;display:block;touch-action:none;cursor:pointer;}
+/* three caps: never wider than the phone, never taller than its share of the
+   screen, and never so large on a desktop window that the controls fall off
+   the bottom */
+#circle{width:min(88vw,42dvh,320px);height:auto;display:block;touch-action:none;cursor:pointer;}
 .center{
   position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:2px;pointer-events:none;text-align:center;
@@ -133,7 +136,10 @@ body.sideB .nt.acc{background:var(--cyan);color:#0a1418;}
 #circle{transition:width .28s cubic-bezier(.32,.72,0,1);}
 body[data-view="vRhythm"] #circle,body[data-view="vSound"] #circle{width:min(42vw,17dvh);}
 body[data-view="vRhythm"] .stickwrap,body[data-view="vSound"] .stickwrap{display:none;}
-#vPlay{padding-top:0;justify-content:flex-end;}
+#vPlay{padding-top:0;justify-content:flex-start;}
+/* sits low when there is room, behaves normally when there isn't — unlike
+   space-between, which clips the top the moment the column overflows */
+#vPlay .tempoarea{margin-top:auto;}
 #vPlay .tempoarea{flex:0 0 auto;padding-bottom:2px;}
 /* the setup screens breathe a little more than the play screen */
 #vRhythm,#vSound,#vTrain{padding-top:12px;}
@@ -187,7 +193,17 @@ body[data-view="vRhythm"] .stickwrap,body[data-view="vSound"] .stickwrap{display
 .minikey span{margin-left:7px;color:var(--ember);letter-spacing:.06em;text-transform:none;}
 .minikey.ghost{border-style:dashed;}
 .rb-sub{display:flex;align-items:center;gap:12px;margin-top:1px;}
-.rb-sub .walkslider{flex:1;}
+#tempoRangeBar,.rb-ends,.rb-sub{display:none;}
+#rangeDial.armed #tempoRangeBar{display:block;}
+#rangeDial.armed .rb-ends{display:flex;}
+#rangeDial.armed .rb-sub{display:flex;}
+.walkslider{display:none;}
+#rangeDial.armed .walkslider{display:block;}
+.walklab{font-size:.55rem;letter-spacing:.19em;text-transform:uppercase;color:var(--faint);}
+.rb-sub{justify-content:space-between;}
+#rateTicks{display:none;}
+#rangeDial.armed #rateTicks{display:flex;}
+
 #rangeDial .dlab{align-items:center;}
 
 /* ── tab bar ───────────────────────────────────────────
@@ -324,7 +340,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 @media (max-height:660px){
-  #circle{width:min(80vw,33dvh);}
+  #circle{width:min(80vw,31dvh,240px);}
   body.bouncemode #circle{width:min(66vw,26dvh);}
   .cbpm{font-size:clamp(1.7rem,9vw,2.2rem);}
   .key{min-height:44px;padding:9px 5px;}
@@ -388,8 +404,10 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
       <div id="tempoRangeBar"></div>
       <div class="rb-sub">
         <button class="minikey ghost" id="rangeSet">bottom = now</button>
-        <input type="range" id="rate" min="0" max="100" value="35" class="walkslider">
+        <span class="walklab">Walk</span>
       </div>
+      <input type="range" id="rate" class="snap walkslider" min="0" max="9" step="1" value="1">
+      <div class="ticks" id="rateTicks"></div>
     </div>
 
     <div class="temporow2 one">
@@ -1287,7 +1305,11 @@ $('vol').addEventListener('input',function(){ if(volGain) volGain.gain.value=vol
 // ── ramp: get faster / get slower, right next to the tempo ──
 // The old accel/decel, promoted out of the Train tab — a good metronome that
 // speeds up or slows down is the core of this thing, so it lives with Tempo.
-function rateFromSlider(v){ return 0.1*Math.pow(100, v/100); }   // 0.1 → 10 BPM/bar, log
+// Locked walk rates. Anything under 0.5 BPM/bar is imperceptible inside a
+// practice session, so the slow end is simply not offered.
+var WALK=[0.5,1,1.5,2,2.5,3,3.5,4,4.5,5];
+function rateFromSlider(v){ return WALK[Math.max(0,Math.min(WALK.length-1,+v))]; }
+function walkIdx(r){ var b=0; WALK.forEach(function(w,i){ if(Math.abs(w-r)<Math.abs(WALK[b]-r)) b=i; }); return b; }
 
 // ── the tempo range ────────────────────────────────────
 // Ramp is gone: one-directional climbing was this with the return leg missing,
@@ -1298,6 +1320,8 @@ function rangeLabel(){
   var lo=Math.min(decel.floor,accel.target), hi=Math.max(decel.floor,accel.target);
   $('rangeSub').textContent = range.on ? lo+'\u2013'+hi : 'off';
   $('rangeKey').classList.toggle('on', range.on);
+  $('rangeDial').classList.toggle('armed', range.on);
+  $('rangeWalkVal').style.opacity = range.on ? 1 : .35;
 }
 function setRange(v){ range.on=v; if(v) range.dir=1; rangeLabel(); updateStatus(); save(); }
 tempoRB=rangeBar($('tempoRangeBar'),{
@@ -1312,12 +1336,20 @@ $('rangeSet').onclick=function(){
   decel.floor=bpm; accel.target=hi;
   tempoRB.set(bpm,hi); rangeLabel(); updateStatus(); save();
 };
+(function(){
+  var rt=$('rateTicks');
+  WALK.forEach(function(w){ var e=document.createElement('span'); e.textContent=w.toFixed(1).replace(/\.0$/,''); rt.appendChild(e); });
+})();
+function paintWalk(){
+  var i=walkIdx(accel.rate);
+  $('rate').value=i;
+  $('rangeWalkVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
+  [].forEach.call($('rateTicks').children,function(e,j){ e.classList.toggle('lit',j===i); });
+}
 $('rate').addEventListener('input',function(){
-  accel.rate=rateFromSlider(+this.value); decel.rate=accel.rate;
-  $('rangeWalkVal').textContent='+'+accel.rate.toFixed(1)+'/bar'; save();
+  accel.rate=rateFromSlider(+this.value); decel.rate=accel.rate; paintWalk(); save();
 });
-accel.rate=rateFromSlider(35); decel.rate=accel.rate;
-$('rangeWalkVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
+accel.rate=1.0; decel.rate=accel.rate; paintWalk();
 
 // ── swing ──────────────────────────────────────────────
 function ratioFromSlider(v){ return 0.5 + (v/100)*0.25; }   // 0.50 → 0.75
@@ -1488,8 +1520,8 @@ var KEY='metro.v2';
 function snapshot(){
   return {bpm:bpm,beats:beats,sub:sub,sound:soundType,vol:+$('vol').value,pattern:pattern.slice(),cm:clickMute?1:0,
     range:{on:range.on},
-    accel:{on:false,r:+$('rate').value,t:accel.target},
-    decel:{on:false,r:+$('rate').value,f:decel.floor},
+    accel:{on:false,r:accel.rate,t:accel.target},
+    decel:{on:false,r:accel.rate,f:decel.floor},
     swing:{on:swing.on,r:+$('swingR').value,alt:swing.alt,s:swing.straightBars,w:swing.swungBars},
     voices:voices.map(function(v){return {on:v.on,k:v.k,n:v.n,rot:v.rot,snd:v.snd,acc:v.acc};}),
     bounce:{on:bounce.on,c:bounce.count,a:bounce.figA,b:bounce.figB,ba:bounce.barsA,bb:bounce.barsB,v:bounce.voice,h:bounce.hands},
@@ -1507,9 +1539,9 @@ function applySnapshot(s){
   // two bounds out of them and drop the rest
   accel.on=false; decel.on=false;
   range.on = s.range ? !!s.range.on : false;
-  $('rate').value=s.accel.r;
-  accel.rate=rateFromSlider(s.accel.r); decel.rate=accel.rate;
-  $('rangeWalkVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
+  // old snapshots stored a 0-100 slider position, new ones store the rate
+  accel.rate = s.accel.r>10 ? 1.0 : (s.accel.r||1.0);
+  decel.rate=accel.rate; paintWalk();
   accel.target=s.accel.t; decel.floor=s.decel.f;
   if(tempoRB) tempoRB.set(Math.min(decel.floor,accel.target),Math.max(decel.floor,accel.target));
   rangeLabel();
