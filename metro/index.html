@@ -125,15 +125,41 @@ body.sideB .nt.acc{background:var(--cyan);color:#0a1418;}
 .view.on{display:flex;}
 /* the face takes whatever room the tempo controls don't need, so PLAY never
    has a hole in the middle of it at any screen height */
-#vPlay{padding-top:0;justify-content:space-between;}
-#vPlay .stage,#vPlay .stickwrap,#vPlay .tempoarea{flex:0 0 auto;}
-#vPlay .stage{padding-top:6px;}
-#vPlay .tempoarea{padding-bottom:2px;}
+/* the face never leaves. Setup screens shrink it rather than replace it, so
+   there is always exactly one instrument on screen and you never lose your
+   place in it. */
+.stage,.stickwrap{flex:0 0 auto;}
+.stage{padding-top:6px;}
+#circle{transition:width .28s cubic-bezier(.32,.72,0,1);}
+body[data-view="vRhythm"] #circle,body[data-view="vSound"] #circle{width:min(42vw,17dvh);}
+body[data-view="vRhythm"] .stickwrap,body[data-view="vSound"] .stickwrap{display:none;}
+#vPlay{padding-top:0;justify-content:flex-end;}
+#vPlay .tempoarea{flex:0 0 auto;padding-bottom:2px;}
 /* the setup screens breathe a little more than the play screen */
 #vRhythm,#vSound,#vTrain{padding-top:12px;}
 .view .sect+.sect{margin-top:16px;}
 .temporow2.one{grid-template-columns:1fr;}
 
+
+/* ── dials ─────────────────────────────────────────────
+   A slider you can land on exactly is a knob with detents. The two snapping
+   dials carry their stops underneath so you can see where you are before you
+   move, and the live stop lights up. */
+.dial{margin-top:10px;}
+.dial>input[type=range]{width:100%;display:block;}
+.dial:first-child{margin-top:2px;}
+.dlab{
+  display:flex;align-items:baseline;justify-content:space-between;
+  font-size:.55rem;letter-spacing:.19em;text-transform:uppercase;color:var(--faint);
+  margin-bottom:5px;
+}
+.dval{font-size:.82rem;letter-spacing:.04em;text-transform:none;color:var(--ember);font-variant-numeric:tabular-nums;}
+.ticks{display:flex;justify-content:space-between;margin:4px 2px 0;pointer-events:none;}
+.ticks span{
+  flex:1;text-align:center;font-size:.46rem;letter-spacing:.06em;text-transform:uppercase;
+  color:#3a3f47;transition:color .18s;
+}
+.ticks span.lit{color:var(--gold);}
 
 /* ── tab bar ───────────────────────────────────────────
    Bottom of the screen, thumb height, always the same four doors. */
@@ -281,10 +307,6 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 
 <div class="chrome"><a href="/">← beGump</a><h1>Metronome</h1></div>
 
-<div class="views">
-
-<!-- PLAY — the only thing on screen while you are actually drumming -->
-<section class="view on" id="vPlay">
 <div class="stage">
   <button class="vizbtn" id="vizBtn" aria-pressed="false">3D</button>
   <button class="sndbtn" id="sndBtn" aria-label="sound">Wood</button>
@@ -299,14 +321,38 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
   </div>
 </div>
 <div class="stickwrap"><div class="stick" id="stick"></div></div>
+
+<div class="views">
+
+<!-- PLAY — the only thing on screen while you are actually drumming -->
+<section class="view on" id="vPlay">
   <div class="tempoarea">
-  <div class="temporow">
-    <button class="step lg" id="dn1" aria-label="slower">−</button>
-    <input type="range" id="tempo" min="30" max="300" value="120">
-    <button class="step lg" id="up1" aria-label="faster">+</button>
-  </div>
+
+    <!-- three dials. Tempo runs free; the other two snap, so they read like
+         detented knobs rather than continuous sliders. -->
+    <div class="dial">
+      <div class="dlab">Tempo<span class="dval" id="tempoVal">120</span></div>
+      <div class="temporow">
+        <button class="step lg" id="dn1" aria-label="slower">&minus;</button>
+        <input type="range" id="tempo" min="30" max="300" value="120">
+        <button class="step lg" id="up1" aria-label="faster">+</button>
+      </div>
+    </div>
+
+    <div class="dial">
+      <div class="dlab">Subdivision<span class="dval" id="subVal">16th</span></div>
+      <input type="range" class="snap" id="subSlider" min="0" max="6" step="1" value="3">
+      <div class="ticks" id="subTicks"></div>
+    </div>
+
+    <div class="dial">
+      <div class="dlab">Cross-rhythm<span class="dval" id="crossVal">off</span></div>
+      <input type="range" class="snap" id="crossSlider" min="0" max="6" step="1" value="0">
+      <div class="ticks" id="crossTicks"></div>
+    </div>
+
     <div class="temporow2 one">
-    <button class="key tapkey" id="tap">Tap<small>4 hits</small></button>
+      <button class="key tapkey" id="tap">Tap<small>4 hits</small></button>
     </div>
   </div>
 </section>
@@ -387,18 +433,31 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
 <!-- TRAIN — its own instrument, its own logic -->
 <section class="view" id="vTrain">
   <div class="sect">
-    <h2>Tempo ramp</h2>
-    <div class="keys c2">
-    <button class="key tapkey" id="rampKey">Ramp<small id="rampSub">off</small></button>
+    <h2>Tempo range</h2>
+    <div class="keys c3">
+      <button class="key" id="rampKey">Ramp<small id="rampSub">off</small></button>
+      <button class="key" id="rangeKey">Range<small id="rangeSub">off</small></button>
+      <button class="key" id="rangeSet">Set from now<small>bottom = current</small></button>
     </div>
-  <div class="body" id="rampUpBody">
-    <div class="slide"><label>Speed&nbsp;up</label><input type="range" id="rate" min="0" max="100" value="35"><span class="val" id="rateVal">+1.0/bar</span></div>
-    <div class="slide"><label>Up to</label><input type="range" id="target" min="40" max="300" value="200"><span class="val" id="targetVal">200</span></div>
-  </div>
-  <div class="body" id="rampDnBody">
-    <div class="slide"><label>Slow&nbsp;down</label><input type="range" id="drate" min="0" max="100" value="35"><span class="val" id="drateVal">−1.0/bar</span></div>
-    <div class="slide"><label>Down to</label><input type="range" id="floor" min="30" max="250" value="60"><span class="val" id="floorVal">60</span></div>
-  </div>
+    <div class="body" id="rangeBody">
+      <div class="dial">
+        <div class="dlab">Bottom<span class="dval" id="floorVal">60</span></div>
+        <input type="range" id="floor" min="30" max="250" value="60">
+      </div>
+      <div class="dial">
+        <div class="dlab">Top<span class="dval" id="targetVal">200</span></div>
+        <input type="range" id="target" min="40" max="300" value="200">
+      </div>
+      <div class="dial">
+        <div class="dlab">Walk<span class="dval" id="rateVal">+1.0/bar</span></div>
+        <input type="range" id="rate" min="0" max="100" value="35">
+      </div>
+      <p class="hint" id="rangeHint">Walks the tempo up to the top, then back down to the bottom, and keeps going for as long as you play. Set the subdivision you want to work on first &mdash; the range only moves the tempo, so the figure stays put under you.</p>
+    </div>
+    <div class="body" id="rampUpBody">
+      <div class="slide"><label>Speed&nbsp;up</label><input type="range" id="drate" min="0" max="100" value="35"><span class="val" id="drateVal">&minus;1.0/bar</span></div>
+    </div>
+    <div class="body" id="rampDnBody"></div>
   </div>
   <div class="sect">
     <h2>Drill</h2>
@@ -433,8 +492,8 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
       </div>
       <div class="stepline"><label>Bars each</label><button class="step" id="ladRepDn">−</button><span class="stepv" id="ladRepVal">2</span><button class="step" id="ladRepUp">+</button></div>
       <div class="keys c2">
-        <button class="key on" data-mode="wrap">Up, restart<small>climb, then top → bottom</small></button>
-        <button class="key" data-mode="bounce">Up &amp; back<small>climb, then walk back down</small></button>
+        <button class="key" data-mode="wrap">Up, restart<small>climb, then top → bottom</small></button>
+        <button class="key on" data-mode="bounce">Up &amp; back<small>climb, then walk back down</small></button>
       </div>
       <p class="hint">Climbs a rung every few bars. <b>Subdivisions</b> runs the pulse from quarters up to 64ths. <b>Cross-rhythms</b> climbs from a plain count up through 3, 5, 6, 7, 9, 10, 11 and on to 21 across the bar — and back to nothing. Watch the shapes change as it goes.</p>
     </div>
@@ -456,7 +515,7 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
   <button class="tab on" data-view="vPlay">Play</button>
   <button class="tab" data-view="vRhythm">Rhythm<i id="dotRhythm"></i></button>
   <button class="tab" data-view="vSound">Sound</button>
-  <button class="tab" data-view="vTrain">Train<i id="dotTrain"></i></button>
+  <button class="tab" data-view="vTrain">Practice<i id="dotTrain"></i></button>
 </nav>
 
 
@@ -472,6 +531,7 @@ var clickMute=false, viz=false;
 var pattern=[];                 // per cell: 0 off, 1 normal, 2 accent
 var accel={on:false, rate:1.0, target:200};
 var decel={on:false, rate:1.0, floor:60};
+var range={on:false, dir:1};   // walks between decel.floor and accel.target, both ways, forever
 var swing={on:false, ratio:0.667, alt:false, straightBars:2, swungBars:2};
 // Layers under the pinned click. Each spreads k hits across n steps of the bar,
 // Euclidean-spaced, then turned by rot. Root rhythms, Euclidean patterns and kit
@@ -497,7 +557,7 @@ function voiceStepTime(v, step, barStart, barDur, swung){
 }
 var bounce={on:false, count:1, figA:'8', figB:'16', barsA:2, barsB:2, voice:true, hands:false,
             bar:0, barTime:0};
-var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'wrap', kind:'subs'};   // auto-cycle subdivisions or cross-rhythms
+var ladder={on:false, repeats:2, idx:0, barsDone:0, dir:1, mode:'bounce', kind:'subs'};   // auto-cycle subdivisions or cross-rhythms
 var LADDER_CROSS=[0,3,5,6,7,9,10,11,13,15,17,19,21];   // rung 0 is nothing — it climbs out of and back into silence
 function ladderRungCount(){ return ladder.kind==='cross'?LADDER_CROSS.length:SUBS.length; }
 
@@ -698,6 +758,20 @@ var visQ=[], flashQ=[], barVisQ=[];
 // meant the bounce trainer — which runs its own scheduler — never ramped at
 // all. Both schedulers call this now, so there's one place for it to be right.
 function rampOneBar(){
+  if(range.on){
+    var lo=Math.min(decel.floor,accel.target), hi=Math.max(decel.floor,accel.target);
+    if(hi-lo<1) return;                       // a range of nothing is just a tempo
+    // if you switch it on from outside the range, walk in rather than jumping —
+    // a sudden 40 BPM step mid-bar is unplayable
+    if(bpm>hi){ range.dir=-1; setBpm(Math.max(hi,bpm-accel.rate),true); return; }
+    if(bpm<lo){ range.dir=1;  setBpm(Math.min(lo,bpm+accel.rate),true); return; }
+    if(bpm<=lo) range.dir=1; else if(bpm>=hi) range.dir=-1;
+    var nb=bpm+accel.rate*range.dir;
+    if(nb>=hi){ nb=hi; range.dir=-1; }
+    else if(nb<=lo){ nb=lo; range.dir=1; }
+    setBpm(nb,true);
+    return;
+  }
   if(accel.on && bpm<accel.target){ bpm=Math.min(accel.target, bpm+accel.rate); setBpm(bpm,true); }
   else if(decel.on && bpm>decel.floor){ bpm=Math.max(decel.floor, bpm-decel.rate); setBpm(bpm,true); }
 }
@@ -989,12 +1063,13 @@ function updateStatus(){
   if(!bounce.on && voices[3] && voices[3].on) bits.push(voices[3].n+':'+beats);
   if(clickMute) bits.push('click off');
   if(ladder.on) bits.push('ladder');
+  if(range.on) bits.push(Math.min(decel.floor,accel.target)+'↔'+Math.max(decel.floor,accel.target));
   if(accel.on) bits.push('→'+accel.target);
   if(decel.on) bits.push('→'+decel.floor);
   $('s2').innerHTML=bits.join(' · ');
   // tab dots: something is armed under this tab
   $('dotRhythm').classList.toggle('lit', swing.on||voices.some(function(v){return v.on;}));
-  $('dotTrain').classList.toggle('lit', bounce.on||ladder.on);
+  $('dotTrain').classList.toggle('lit', bounce.on||ladder.on||range.on);
 }
 function flashStatus(msg){
   var el=$('s2'), old=el.innerHTML;
@@ -1047,13 +1122,52 @@ $('sndBtn').onclick=function(){
 function setSub(n){
   sub=n;
   [].forEach.call($('subs').children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
-  resetPattern(); buildGrid(); updateSwingHint(); updateStatus(); restartBar(); save();
+  resetPattern(); buildGrid(); updateSwingHint(); updateStatus(); restartBar(); paintDials(); save();
 }
+
+// ── the dials ──────────────────────────────────────────
+// Two snapping sliders over the same state the option keys drive, so whichever
+// you touch the other follows. The stops are drawn underneath and the live one
+// lights, which is what makes a slider read as a detented knob.
+var DIAL_CROSS=[0,2,3,4,5,6,7];
+var SHORT={1:'1/4',2:'8th',3:'trip',4:'16th',6:'sext',8:'32nd',16:'64th'};
+function buildTicks(){
+  var st=$('subTicks'); if(st && !st.children.length)
+    SUBS.forEach(function(o){ var e=document.createElement('span'); e.textContent=SHORT[o.n]||o.n; st.appendChild(e); });
+  var ct=$('crossTicks'); if(ct && !ct.children.length)
+    DIAL_CROSS.forEach(function(n){ var e=document.createElement('span'); e.textContent=(n===0?'off':n+':'); ct.appendChild(e); });
+}
+function paintDials(){
+  var tv=$('tempoVal'); if(tv) tv.textContent=bpm;
+  var si=0; SUBS.forEach(function(o,i){ if(o.n===sub) si=i; });
+  var ss=$('subSlider'); if(ss && +ss.value!==si) ss.value=si;
+  var sv=$('subVal'); if(sv) sv.textContent=SUBS[si].name;
+  [].forEach.call(($('subTicks')||{children:[]}).children,function(e,i){ e.classList.toggle('lit',i===si); });
+
+  var cv=voices[3], ci=0;
+  if(cv.on){ var k=DIAL_CROSS.indexOf(cv.n); ci = k<0 ? -1 : k; }
+  var cs=$('crossSlider');
+  if(cs && ci>=0 && +cs.value!==ci) cs.value=ci;
+  var cl=$('crossVal');
+  if(cl) cl.textContent = !cv.on ? 'off' : (ci<0 ? cv.n+' : '+beats+' (set on Rhythm)' : cv.n+' : '+beats);
+  [].forEach.call(($('crossTicks')||{children:[]}).children,function(e,i){ e.classList.toggle('lit',i===ci); });
+}
+function setCross(n){
+  if(n===0){ voices[3].on=false; }
+  else { voices[3].on=true; voices[3].k=n; voices[3].n=n; voices[3].rot=0; voices[3].acc={}; }
+  if(typeof buildCross==='function') buildCross();
+  if(typeof buildVoiceUI==='function') buildVoiceUI();
+  updateStatus(); paintDials(); save();
+}
+buildTicks();
+$('subSlider').addEventListener('input',function(){ setSub(SUBS[+this.value].n); });
+$('crossSlider').addEventListener('input',function(){ setCross(DIAL_CROSS[+this.value]); });
 
 // ── tempo ──────────────────────────────────────────────
 function setBpm(v,fromAccel){
   bpm=Math.max(30,Math.min(300,Math.round(v)));
   $('bpm').textContent=bpm;
+  var tv=$('tempoVal'); if(tv) tv.textContent=bpm;
   if(!fromAccel){ $('tempo').value=bpm; save(); }
 }
 $('tempo').addEventListener('input',function(){ setBpm(+this.value); });
@@ -1103,8 +1217,25 @@ function rampLabel(){
   $('rampUpBody').classList.toggle('open', accel.on);
   $('rampDnBody').classList.toggle('open', decel.on);
 }
-function setAccel(v){ accel.on=v; if(v) decel.on=false; rampLabel(); updateStatus(); }
-function setDecel(v){ decel.on=v; if(v) accel.on=false; rampLabel(); updateStatus(); }
+function rangeLabel(){
+  var lo=Math.min(decel.floor,accel.target), hi=Math.max(decel.floor,accel.target);
+  $('rangeSub').textContent = range.on ? lo+' \u2194 '+hi : 'off';
+  $('rangeKey').classList.toggle('on', range.on);
+  $('rangeBody').classList.toggle('open', range.on);
+}
+function setRange(v){
+  range.on=v;
+  if(v){ accel.on=false; decel.on=false; range.dir=1; rampLabel(); }
+  rangeLabel(); updateStatus(); save();
+}
+$('rangeKey').onclick=function(){ setRange(!range.on); };
+$('rangeSet').onclick=function(){          // bottom of the range = where you are now
+  decel.floor=bpm; $('floor').value=bpm; $('floorVal').textContent=bpm;
+  if(accel.target<=bpm+4){ accel.target=Math.min(300,bpm+40); $('target').value=accel.target; $('targetVal').textContent=accel.target; }
+  rangeLabel(); updateStatus(); save();
+};
+function setAccel(v){ accel.on=v; if(v){ decel.on=false; range.on=false; rangeLabel(); } rampLabel(); updateStatus(); }
+function setDecel(v){ decel.on=v; if(v){ accel.on=false; range.on=false; rangeLabel(); } rampLabel(); updateStatus(); }
 $('rampKey').onclick=function(){                       // off → up → down → off
   if(!accel.on && !decel.on) setAccel(true);
   else if(accel.on) setDecel(true);
@@ -1116,14 +1247,14 @@ $('rate').addEventListener('input',function(){
   $('rateVal').textContent='+'+accel.rate.toFixed(1)+'/bar'; save();
 });
 $('target').addEventListener('input',function(){
-  accel.target=+this.value; $('targetVal').textContent=accel.target; rampLabel(); updateStatus(); save();
+  accel.target=+this.value; $('targetVal').textContent=accel.target; rampLabel(); rangeLabel(); updateStatus(); save();
 });
 $('drate').addEventListener('input',function(){
   decel.rate=rateFromSlider(+this.value);
   $('drateVal').textContent='−'+decel.rate.toFixed(1)+'/bar'; save();
 });
 $('floor').addEventListener('input',function(){
-  decel.floor=+this.value; $('floorVal').textContent=decel.floor; rampLabel(); updateStatus(); save();
+  decel.floor=+this.value; $('floorVal').textContent=decel.floor; rampLabel(); rangeLabel(); updateStatus(); save();
 });
 accel.rate=rateFromSlider(35); $('rateVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
 decel.rate=rateFromSlider(35); $('drateVal').textContent='−'+decel.rate.toFixed(1)+'/bar';
@@ -1259,6 +1390,7 @@ $('ladRepDn').onclick=function(){ setLadRep(ladder.repeats-1); };
 var KEY='metro.v2';
 function snapshot(){
   return {bpm:bpm,beats:beats,sub:sub,sound:soundType,vol:+$('vol').value,pattern:pattern.slice(),cm:clickMute?1:0,
+    range:{on:range.on},
     accel:{on:accel.on,r:+$('rate').value,t:accel.target},
     decel:{on:decel.on,r:+$('drate').value,f:decel.floor},
     swing:{on:swing.on,r:+$('swingR').value,alt:swing.alt,s:swing.straightBars,w:swing.swungBars},
@@ -1275,6 +1407,7 @@ function applySnapshot(s){
   paintSound();
   setClickMute(!!s.cm);          // absent in old snapshots — defaults to on
   // ramp
+  if(s.range) range.on=!!s.range.on;
   $('rate').value=s.accel.r; accel.rate=rateFromSlider(s.accel.r); $('rateVal').textContent='+'+accel.rate.toFixed(1)+'/bar';
   accel.target=s.accel.t; $('target').value=accel.target; $('targetVal').textContent=accel.target;
   $('drate').value=s.decel.r; decel.rate=rateFromSlider(s.decel.r); $('drateVal').textContent='−'+decel.rate.toFixed(1)+'/bar';
@@ -1359,7 +1492,7 @@ var DEFAULTS={bpm:120,beats:4,sub:4,sound:'wood',vol:75,pattern:null,cm:0,
   swing:{on:false,r:67,alt:false,s:2,w:2},
   voices:[{on:false,k:2,n:8,rot:0,snd:'kick',acc:{}},{on:false,k:2,n:8,rot:2,snd:'snare',acc:{}},{on:false,k:4,n:16,rot:0,snd:'hat',acc:{}},{on:false,k:3,n:3,rot:0,snd:'ping',acc:{}}],
   bounce:{on:false,c:1,a:'8',b:'16',ba:2,bb:2,v:true,h:false},
-  ladder:{on:false,rep:2,mode:'wrap',kind:'subs'}};
+  ladder:{on:false,rep:2,mode:'bounce',kind:'subs'}};
 $('resetKey').onclick=function(){
   if(playing) stop();
   applySnapshot(JSON.parse(JSON.stringify(DEFAULTS)));
@@ -1506,11 +1639,7 @@ function buildCross(){
     if(on) b.classList.add('on');
     b.innerHTML=(n===0?'Off':n+' : '+beats)+'<small>'+(n===0?'just the click':n+' across the bar')+'</small>';
     b.style.fontSize='.8rem';
-    b.onclick=function(){
-      if(n===0){ voices[3].on=false; }
-      else { voices[3].on=true; voices[3].k=n; voices[3].n=n; voices[3].rot=0; voices[3].acc={}; }
-      buildCross(); buildVoiceUI(); updateStatus(); save();
-    };
+    b.onclick=function(){ setCross(n); };
     host.appendChild(b);
   });
   var more=document.createElement('button');
@@ -2425,6 +2554,8 @@ requestAnimationFrame(function(){
   // reopen on the screen you left, but never straight into Train
   var v=loadStore().view;
   showView(v==='vTrain'?'vPlay':v,false);
+  paintDials();
+  if(typeof rangeLabel==='function') rangeLabel();
 });
 })();
 </script>
