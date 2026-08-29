@@ -2,7 +2,7 @@
 'use strict';
 if(location.pathname!=='/research/'&&location.pathname!=='/research/index.html')return;
 var gated=[
-'/research/proto-elamite/','/research/indus-script/','/research/loo9/'
+
 ];
 var set={};gated.forEach(function(p){set[p]=true});
 function norm(h){try{return new URL(h,location.origin).pathname.replace(/index\.html$/,'').replace(/\/+$/,'/')||'/'}catch(e){return h}}

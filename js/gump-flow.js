@@ -10,7 +10,7 @@ function norm(path){
 }
 function isResearch(path){path=norm(path);return path==='/research'||path.indexOf('/research/')===0;}
 function isDoors(path){return norm(path)==='/research/doors';}
-function rememberDoors(){try{sessionStorage.setItem(KEY,'/research/doors/');}catch(e){}}
+function rememberDoors(){trycatch(e){}}
 function remembered(){try{return sessionStorage.getItem(KEY);}catch(e){return null;}}
 function rewriteBackLinks(){
   var path=norm(location.pathname);
