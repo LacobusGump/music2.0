@@ -126,6 +126,28 @@ setTimeout(()=>{
     const slot=d.querySelector('.slot-btn,[data-slot-idx],#mem0')||d.querySelectorAll('.mem button')[0];
     if(!slot) return;                                   // markup differs; not the thing under test
   });
+  T('accents sit directly under the face', ()=>{
+    const play=$('vPlay');
+    const kids=[...play.children].filter(n=>n.nodeType===1);
+    const acc=kids.findIndex(n=>n.classList.contains('accentwrap'));
+    const dials=kids.findIndex(n=>n.classList.contains('tempoarea'));
+    if(acc<0) throw new Error('no accentwrap in vPlay');
+    if(!(acc<dials)) throw new Error('accents (#'+acc+') are not above the dials (#'+dials+')');
+  });
+  T('beats/bar travels with the grid it sizes', ()=>{
+    const kids=[...$('vPlay').children].filter(n=>n.nodeType===1);
+    const acc=kids.findIndex(n=>n.classList.contains('accentwrap'));
+    const step=kids.findIndex(n=>n.classList.contains('stepline'));
+    const dials=kids.findIndex(n=>n.classList.contains('tempoarea'));
+    if(!(step===acc+1 && step<dials)) throw new Error('stepline at #'+step+', accents #'+acc+', dials #'+dials);
+  });
+  T('beats/bar still resizes the accent grid', ()=>{
+    const before=$('grid').children.length;
+    click($('beatUp'));
+    const after=$('grid').children.length;
+    if(after<=before) throw new Error(before+' -> '+after+' cells');
+    click($('beatDn'));
+  });
   T('cross-rhythm "more" reveals the rest', ()=>{
     const g=$('crossPills');
     if(g.classList.contains('wide')) throw new Error('starts expanded');
