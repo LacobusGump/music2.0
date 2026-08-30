@@ -209,6 +209,13 @@ body[data-view="vSound"] .stickwrap{display:none;}
   margin-bottom:5px;
 }
 .dval{font-size:.82rem;letter-spacing:.04em;text-transform:none;color:var(--ember);font-variant-numeric:tabular-nums;}
+/* a value you have asked for but the bar has not reached yet — it breathes so
+   you can see the difference between "set" and "about to be set" */
+.dval.pend,.stepv.pend{color:var(--gold);animation:pendpulse 1.1s ease-in-out infinite;}
+@keyframes pendpulse{0%,100%{opacity:1;}50%{opacity:.34;}}
+@media (prefers-reduced-motion:reduce){ .dval.pend,.stepv.pend{animation:none;text-decoration:underline;text-underline-offset:3px;} }
+#syncKey{padding:4px 8px;font-size:.5rem;letter-spacing:.13em;}
+#syncKey span{margin-left:5px;font-size:.52rem;}
 .ticks{display:flex;justify-content:space-between;margin:4px 2px 0;pointer-events:none;}
 .ticks span{
   flex:1;text-align:center;font-size:.46rem;letter-spacing:.06em;text-transform:uppercase;
@@ -438,7 +445,9 @@ body.running .play{box-shadow:0 6px 22px rgba(0,0,0,.5),0 0 40px rgba(243,212,13
     </div>
 
     <div class="dial">
-      <div class="dlab">Subdivision<span class="dval" id="subVal">16th</span></div>
+      <div class="dlab">Subdivision
+        <button class="minikey ghost" id="syncKey" title="when a change to the subdivision or the meter takes effect">Sync<span>on the bar</span></button>
+        <span class="dval" id="subVal">16th</span></div>
       <input type="range" class="snap" id="subSlider" min="0" max="6" step="1" value="3">
       <div class="ticks" id="subTicks"></div>
     </div>
@@ -666,6 +675,35 @@ var FIGURES=[
   {id:'dsr',  name:'Double Stroke Roll',     sub:4, base:'R r l l'},
   {id:'tsr',  name:'Triple Stroke Roll',     sub:6, base:'R r r L l l'},
   {id:'mbr',  name:'Multiple Bounce Roll',   sub:4, base:'zR zr zr zr'},
+  // singles that end on an accent — the count in the name is the strokes,
+  // and the last one lands on the following beat
+  {id:'ss4',  name:'Single Stroke Four',     sub:4, base:'r l r L l r l R'},
+  {id:'ss7',  name:'Single Stroke Seven',    sub:6, base:'r l r l r l R - - - - - '+
+                                                        'l r l r l r L - - - - -'},
+  // ── numbered rolls ───────────────────────────────────
+  // Every one of these is (N-1)/2 diddles and a release, so they are all the
+  // same bar: roll through beat one, land the accent on beat two, hand swaps,
+  // again. What changes is only the density — 5 rides 16ths, 7 sextuplets,
+  // 9 32nds, and on up. Written that way the family reads as one ladder, which
+  // is how it is actually drilled, and fig.sub carries the density so the
+  // strip and the click stay honest at any tempo.
+  {id:'r5',   name:'Five Stroke Roll',       sub:4,  base:'r r l l R - - - '+
+                                                          'l l r r L - - -'},
+  {id:'r6',   name:'Six Stroke Roll',        sub:6,  base:'R l l r r L  L r r l l R'},
+  {id:'r7',   name:'Seven Stroke Roll',      sub:6,  base:'r r l l r r L - - - - - '+
+                                                          'l l r r l l R - - - - -'},
+  {id:'r9',   name:'Nine Stroke Roll',       sub:8,  base:'r r l l r r l l R - - - - - - - '+
+                                                          'l l r r l l r r L - - - - - - -'},
+  {id:'r10',  name:'Ten Stroke Roll',        sub:8,  base:'r r l l r r l l R - - - L - - - '+
+                                                          'l l r r l l r r L - - - R - - -'},
+  {id:'r11',  name:'Eleven Stroke Roll',     sub:10, base:'r r l l r r l l r r R - - - - - - - - - '+
+                                                          'l l r r l l r r l l L - - - - - - - - -'},
+  {id:'r13',  name:'Thirteen Stroke Roll',   sub:12, base:'r r l l r r l l r r l l R - - - - - - - - - - - '+
+                                                          'l l r r l l r r l l r r L - - - - - - - - - - -'},
+  {id:'r15',  name:'Fifteen Stroke Roll',    sub:14, base:'r r l l r r l l r r l l r r R - - - - - - - - - - - - - '+
+                                                          'l l r r l l r r l l r r l l L - - - - - - - - - - - - -'},
+  {id:'r17',  name:'Seventeen Stroke Roll',  sub:16, base:'r r l l r r l l r r l l r r l l R - - - - - - - - - - - - - - - '+
+                                                          'l l r r l l r r l l r r l l r r L - - - - - - - - - - - - - - -'},
   // paradiddle family
   {id:'para', name:'Single Paradiddle',      sub:4, base:'R l r r L r l l'},
   {id:'dpara',name:'Double Paradiddle',      sub:6, base:'R l r l r r L r l r l l'},
@@ -838,8 +876,43 @@ var VOICE_SOUNDS=[{id:'kick',name:'Kick'},{id:'snare',name:'Snare'},{id:'hat',na
                   {id:'pedal',name:'Pedal'},{id:'ping',name:'Ping'}];
 
 // ── scheduler (audio-clock lookahead) ──
-var cellIndex=0, nextTime=0, timer=null;
+var cellIndex=0, barNo=0, nextTime=0, timer=null;
 var visQ=[], flashQ=[], barVisQ=[];
+
+// ── changing the bar without losing the bar ────────────
+// Subdivision and meter change the SHAPE of the bar, so they used to call
+// restartBar(): cellIndex=0, nextTime=now. That drops whatever was left of the
+// current bar and re-seeds the clock off the wall — the click lurches, and if
+// you were playing along you are suddenly early. Anything shape-changing now
+// waits at the door and steps in on a downbeat (or a beat), and nextTime is
+// never touched: the pulse runs straight through the change.
+var quant='bar';                       // 'bar' | 'beat' | 'now'
+var QUANTS=['bar','beat','now'], QUANTLAB={bar:'on the bar',beat:'on the beat',now:'instantly'};
+var pend={};
+function pendAny(){ for(var k in pend) if(pend.hasOwnProperty(k)) return true; return false; }
+function atSync(name, val, fn){
+  if(!playing || quant==='now'){ delete pend[name]; fn(); paintPending(); return; }
+  pend[name]={val:val, fn:fn};
+  paintPending();
+}
+function flushPending(){
+  for(var k in pend){ if(!pend.hasOwnProperty(k)) continue; var p=pend[k]; delete pend[k]; p.fn(); }
+  paintPending();
+}
+function wantSub(){   return pend.sub   ? pend.sub.val   : sub; }
+function wantBeats(){ return pend.beats ? pend.beats.val : beats; }
+function paintPending(){
+  var d=$('subVal'), b=$('beatsVal');
+  if(d) d.classList.toggle('pend', !!pend.sub);
+  if(b) b.classList.toggle('pend', !!pend.beats);
+  document.body.classList.toggle('pending', pendAny());
+}
+function setQuant(q){
+  quant=(QUANTS.indexOf(q)<0)?'bar':q;
+  var k=$('syncKey'); if(k){ k.innerHTML='Sync<span>'+QUANTLAB[quant]+'</span>'; k.classList.toggle('on',quant!=='now'); }
+  if(quant==='now') flushPending();
+  var s=loadStore(); s.quant=quant; writeStore(s);
+}
 // One bar's worth of ramp. This used to live inline inside schedule(), which
 // meant the bounce trainer — which runs its own scheduler — never ramped at
 // all. Both schedulers call this now, so there's one place for it to be right.
@@ -861,15 +934,24 @@ function rampOneBar(){
   if(accel.on && bpm<accel.target){ bpm=Math.min(accel.target, bpm+accel.rate); setBpm(bpm,true); }
   else if(decel.on && bpm>decel.floor){ bpm=Math.max(decel.floor, bpm-decel.rate); setBpm(bpm,true); }
 }
-function swungThisBar(barNo){
+function swungThisBar(bn){
   if(!swing.on || sub%2!==0) return false;
   if(!swing.alt) return true;
   var cyc=swing.straightBars+swing.swungBars;
-  return (barNo % cyc) >= swing.straightBars;
+  return (bn % cyc) >= swing.straightBars;
 }
 function schedule(){
   while(nextTime < actx.currentTime + 0.1){
-    var total=beats*sub, i=cellIndex%total, barNo=Math.floor(cellIndex/total);
+    var total=beats*sub, i=cellIndex%total;
+    // the door: a queued shape-change steps in here, on a boundary, and the
+    // cell counter is re-expressed in the new subdivision so the beat we are
+    // standing on stays the beat we are standing on. nextTime is untouched.
+    if(pendAny() && (i===0 || (quant==='beat' && i%sub===0))){
+      var atBeat=Math.floor(i/sub);
+      flushPending();
+      cellIndex=Math.min(atBeat, beats-1)*sub;
+      total=beats*sub; i=cellIndex%total;
+    }
     var swung=swungThisBar(barNo);
     // bar-start work: layers + feel marker
     if(i===0){
@@ -900,6 +982,11 @@ function schedule(){
     nextTime+=dur;
     cellIndex++;
     if(cellIndex%total===0){
+      // bars are counted on their own, not derived from cellIndex — the counter
+      // gets re-based whenever the bar changes shape, and swing alternation must
+      // not restart every time it does
+      barNo++;
+      cellIndex=0;
       rampOneBar();
       if(ladder.on){
         if(++ladder.barsDone>=ladder.repeats){
@@ -908,7 +995,7 @@ function schedule(){
           if(ladder.mode==='wrap'){ ladder.idx = ladder.idx>=hi ? lo : ladder.idx+1; }
           else { if(ladder.idx+ladder.dir<lo || ladder.idx+ladder.dir>hi) ladder.dir=-ladder.dir;
                  ladder.idx=Math.max(lo,Math.min(hi,ladder.idx+ladder.dir)); }
-          ladderApply(); cellIndex=0;   // start the new subdivision on a fresh bar
+          ladderApply();               // lands on the downbeat; the clock rolls on
         }
       }
     }
@@ -921,7 +1008,8 @@ function start(){
   openBus();
   $('play').textContent='■';
   if(bounce.on){ bounce.bar=0; bounce.barTime=actx.currentTime+0.1; bounceVisQ=[]; }
-  else { if(ladder.on){ ladderReset(); ladderApply(); } cellIndex=0; nextTime=actx.currentTime+0.06; }
+  else { if(ladder.on){ ladderReset(); ladderApply(); } cellIndex=0; barNo=0; nextTime=actx.currentTime+0.06; }
+  pend={}; paintPending();
   timer=setInterval(tick,25);
   buildKeepalive();
   try{ var pr=keepEl.play(); if(pr&&pr.catch) pr.catch(function(){}); }catch(e){}
@@ -929,6 +1017,7 @@ function start(){
 }
 function stop(){
   playing=false; closeBus();          // silence anything already queued ahead
+  flushPending();                     // nothing left to sync to — let it land now
   document.body.classList.remove('running');
   $('play').textContent='▶';
   clearInterval(timer); timer=null; visQ=[]; flashQ=[]; barVisQ=[]; bounceVisQ=[];
@@ -938,7 +1027,6 @@ function stop(){
   try{ keepEl.pause(); }catch(e){}
   sessionMeta();
 }
-function restartBar(){ if(playing){ cellIndex=0; nextTime=actx.currentTime+0.05; } }
 
 // ── bounce trainer ──
 // A steady "count" click anchors the pulse; the two figures alternate every
@@ -966,6 +1054,7 @@ function figureForBar(bar){
 }
 function bounceSchedule(){
   while(bounce.barTime < actx.currentTime + 0.2){
+    if(pendAny()) flushPending();     // whole bars are laid out here, so the door is the bar
     var bar=bounce.bar, w=figureForBar(bar), fig=w.fig;
     var barStart=bounce.barTime, barDur=(60/bpm)*beats;
     bounceVisQ.push({time:barStart, barStart:true, bar:bar, dur:barDur, side:w.side, left:w.left, figId:fig.id, nextName:w.next.name});
@@ -1289,9 +1378,15 @@ $('sndBtn').onclick=function(){
   save();
 };
 function setSub(n){
+  if(n===wantSub()) return;
+  atSync('sub', n, function(){ applySub(n); });
+  paintDials();                       // the dial follows your finger straight away…
+  if(pend.sub) flashStatus(subName(n)+' · '+QUANTLAB[quant]);   // …and says when it lands
+}
+function applySub(n){
   sub=n;
   var se=$('subs'); if(se) [].forEach.call(se.children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
-  resetPattern(); buildGrid(); updateSwingHint(); updateStatus(); restartBar(); paintDials(); save();
+  resetPattern(); buildGrid(); updateSwingHint(); updateStatus(); paintDials(); save();
 }
 
 
@@ -1368,7 +1463,7 @@ function buildTicks(){
 }
 function paintDials(){
   var tv=$('tempoVal'); if(tv) tv.textContent=bpm;
-  var si=0; SUBS.forEach(function(o,i){ if(o.n===sub) si=i; });
+  var ws=wantSub(), si=0; SUBS.forEach(function(o,i){ if(o.n===ws) si=i; });
   var ss=$('subSlider'); if(ss && +ss.value!==si) ss.value=si;
   var sv=$('subVal'); if(sv) sv.textContent=SUBS[si].name;
   [].forEach.call(($('subTicks')||{children:[]}).children,function(e,i){ e.classList.toggle('lit',i===si); });
@@ -1378,8 +1473,9 @@ function paintDials(){
   var cs=$('crossSlider');
   if(cs && ci>=0 && +cs.value!==ci) cs.value=ci;
   var cl=$('crossVal');
-  if(cl) cl.textContent = !cv.on ? 'off' : (ci<0 ? cv.n+' : '+beats+' (set on Rhythm)' : cv.n+' : '+beats);
+  if(cl) cl.textContent = !cv.on ? 'off' : (ci<0 ? cv.n+' : '+wantBeats()+' (set on Rhythm)' : cv.n+' : '+wantBeats());
   [].forEach.call(($('crossTicks')||{children:[]}).children,function(e,i){ e.classList.toggle('lit',i===ci); });
+  paintPending();
 }
 function setCross(n){
   if(n===0){ voices[3].on=false; }
@@ -1388,6 +1484,7 @@ function setCross(n){
   updateStatus(); paintDials(); save();
 }
 buildTicks();
+$('syncKey').onclick=function(){ setQuant(QUANTS[(QUANTS.indexOf(quant)+1)%QUANTS.length]); };
 $('subSlider').addEventListener('input',function(){ setSub(SUBS[+this.value].n); });
 $('crossSlider').addEventListener('input',function(){ setCross(DIAL_CROSS[+this.value]); });
 
@@ -1424,10 +1521,17 @@ function setClickMute(v){
 $('clickKey').onclick=function(){ setClickMute(!clickMute); save(); };
 
 // beats/bar
-function setBeats(v){ beats=Math.max(1,Math.min(12,v)); $('beatsVal').textContent=beats;
-  resetPattern(); buildGrid(); bouncePreview(); updateStatus(); restartBar(); save(); }
-$('beatUp').onclick=function(){ setBeats(beats+1); };
-$('beatDn').onclick=function(){ setBeats(beats-1); };
+function setBeats(v){
+  v=Math.max(1,Math.min(12,v));
+  if(v===wantBeats()) return;
+  $('beatsVal').textContent=v;        // the readout is what you asked for…
+  atSync('beats', v, function(){ applyBeats(v); });
+  if(pend.beats) flashStatus(v+'/4 · '+QUANTLAB[quant]);
+}
+function applyBeats(v){ beats=v; $('beatsVal').textContent=beats;
+  resetPattern(); buildGrid(); bouncePreview(); updateStatus(); paintDials(); save(); }
+$('beatUp').onclick=function(){ setBeats(wantBeats()+1); };
+$('beatDn').onclick=function(){ setBeats(wantBeats()-1); };
 
 // volume
 $('vol').addEventListener('input',function(){ if(volGain) volGain.gain.value=volFromSlider(); $('volVal').textContent=this.value; save(); });
@@ -1521,6 +1625,7 @@ swing.ratio=ratioFromSlider(67); $('swingRVal').textContent=swingName(swing.rati
 // ── drills: off / bounce / ladder (mutually exclusive) ──
 var bouncePreview=function(){}, repaintBounceUI=null;
 function setDrill(which){
+  var was = bounce.on?'bounce':(ladder.on?'ladder':'off');
   bounce.on=(which==='bounce'); ladder.on=(which==='ladder');
   $('drillOff').classList.toggle('on',which==='off');
   $('drillBounce').classList.toggle('on',bounce.on);
@@ -1533,7 +1638,9 @@ function setDrill(which){
   if(bounce.on) bouncePreview();
   if(ladder.on){ ladderReset(); updateLadStatus(); if(!playing) ladderApply(); }
   updateStatus();
-  if(playing){ stop(); start(); }
+  // only a real change of drill needs the two schedulers swapped; re-stating the
+  // one already running (a memory recall, say) must not restart the clock
+  if(playing && which!==was){ stop(); start(); }
   save();
 }
 $('drillOff').onclick=function(){ setDrill('off'); };
@@ -1595,9 +1702,8 @@ function ladderApply(){                 // point the current rung at sub — or 
     if(now) now.textContent=(x===0?'Off':x+' : '+beats);
     return;
   }
-  sub=SUBS[ladder.idx].n;
-  var se=$('subs'); if(se) [].forEach.call(se.children,function(x){ x.classList.toggle('on',+x.dataset.n===sub); });
-  resetPattern(); buildGrid(); updateSwingHint(); updateStatus();
+  delete pend.sub;                    // the ladder owns the subdivision while it runs
+  applySub(SUBS[ladder.idx].n);
   if(now) now.textContent=SUBS[ladder.idx].name;
 }
 function ladderReset(){ ladder.idx=ladBound(0); ladder.barsDone=0; ladder.dir=1; }
@@ -1741,7 +1847,9 @@ function renderMems(){
     if(held) return;
     var st=loadStore(), s=(st.slots||[])[slot];     // tap = recall
     if(!s){ flashStatus('hold M'+(slot+1)+' to store'); return; }
-    applySnapshot(s); flashStatus('recalled M'+(slot+1));
+    // a whole setup is the biggest shape-change there is — it waits for the bar too
+    atSync('snap', slot, function(){ applySnapshot(s); });
+    flashStatus('M'+(slot+1)+(pend.snap?' · '+QUANTLAB[quant]:' recalled'));
   }
   m.addEventListener('pointerdown',function(e){ e.preventDefault(); down(); });
   m.addEventListener('pointerup',up);
@@ -1873,7 +1981,9 @@ function buildKits(){
       kit.v.forEach(function(t,vi){ var v=voices[vi]; if(!v) return;
         v.k=t[0]; v.n=t[1]; v.rot=t[2]; v.snd=t[3]; v.acc={}; v.on=t[0]>0; });
       buildVoiceUI(); updateStatus(); save();
-      if(playing) restartBar();
+      // voices are laid out a whole bar at a time, so a new kit already takes
+      // over on the next downbeat — restarting the bar here only broke the pulse
+      if(playing) flashStatus(kit.label+' · on the bar');
     };
     host.appendChild(b);
   });
@@ -2782,6 +2892,7 @@ paintSound();
 var boot=loadStore().last; if(boot) applySnapshot(boot);
 sizeCircle();
 if(loadStore().viz) setViz(loadStore().viz);
+setQuant(loadStore().quant||'bar');
 renderMems();
 requestAnimationFrame(function(){
   buildGrid();
