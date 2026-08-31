@@ -50,8 +50,20 @@ const w=dom.window,d=w.document;
 const $=id=>d.getElementById(id);
 function click(el){ if(!el) throw new Error('missing element'); el.dispatchEvent(new w.MouseEvent('click',{bubbles:true})); }
 
+// jsdom does not fetch <script src> here, so the page's external scripts are
+// injected by hand — same file the page loads, run in the same window.
+function loadExternal(rel){
+  const code=fs.readFileSync(path.join(__dirname,'..',rel),'utf8');
+  const el=d.createElement('script'); el.textContent=code; d.body.appendChild(el);
+}
+
 setTimeout(()=>{
   const checks=[];
+  const marker=d.createElement('script');
+  marker.setAttribute('src','/js/support-banner.js');
+  marker.dataset.tone='amber'; marker.dataset.compact='1';
+  d.body.appendChild(marker);
+  loadExternal('js/support-banner.js');
   function T(name,fn){ try{ fn(); checks.push(['ok',name]); }catch(e){ checks.push(['FAIL',name+' — '+e.message]); } }
 
   T('lanes viz is gone', ()=>{
@@ -165,6 +177,20 @@ setTimeout(()=>{
     slot.dispatchEvent(new w.MouseEvent('mouseup',{bubbles:true}));
     click($('tempoPills').children[0]);                    // move away
     click(slot);                                           // recall
+  });
+  T('support banner mounts as the first flex child, not an overlay', ()=>{
+    const b=d.querySelector('.gump-support');
+    if(!b) throw new Error('banner did not mount');
+    if(d.body.firstElementChild!==b) throw new Error('not first child');
+    if(w.getComputedStyle(b).position==='fixed') throw new Error('is fixed — would cover the readout');
+    if(!b.querySelector('a[href="/support/"]')) throw new Error('no link to /support/');
+  });
+  T('dismissing the banner sticks', ()=>{
+    const b=d.querySelector('.gump-support');
+    if(!b) return;
+    click(b.querySelector('.gs-x'));
+    if(d.querySelector('.gump-support')) throw new Error('still there after dismiss');
+    if(!w.localStorage.getItem('gump_support_banner')) throw new Error('choice not remembered');
   });
   T('transport starts and stops', ()=>{ click($('play')); click($('play')); });
 
