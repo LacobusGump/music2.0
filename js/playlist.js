@@ -46,7 +46,7 @@ window.RADIO=(function(){
     {t:"Rent the Click",s:"the fatigue",f:A+"rent_the_click.mp3"},
     {t:"Cheese Receipt",s:"the makers",f:J+"cheese_receipt.mp3",page:"bach",url:"/research/bach/"},
     {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3"},
-    {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
+    {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/products/harmonia/"},
     {t:"Gospel for Ai (Fzine Remix)",s:"3x3^9, remade for a new kind of mind",f:A+"gospel_for_ai.mp3",edm:true},
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
     {t:"Butler's Tray",s:"an old Irish hymn — a ghost ship, no port",f:A+"butlers_tray.mp3",ghost:true},
