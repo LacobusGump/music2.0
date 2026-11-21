@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101b21"><title>Field Score · GUMP v6</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101b21;color:#f4f0df;font:16px/1.5 system-ui,sans-serif}main{max-width:760px;padding:24px clamp(18px,5vw,48px) 42px;margin:auto}
+header,footer,.row{display:flex;justify-content:space-between;align-items:center;gap:12px}header,footer{color:#bccbc6;font-size:.85rem}a{color:inherit}h1{font:normal clamp(3.2rem,10vw,6.4rem)/1 Georgia,serif;letter-spacing:-.065em;margin:34px 0 10px}p{margin:0 0 18px;color:#cad5cd}
+figure{margin:24px 0 16px;border-block:1px solid #496064;background:#14242b}canvas{display:block;width:100%;height:clamp(135px,24vh,225px)}figcaption{padding:8px 12px 12px;font-size:.9rem;color:#d1dad2}strong{color:#ffbf80}button{font:inherit;color:inherit;background:#1b3036;border:1px solid #678181;border-radius:8px;min-height:44px;padding:7px 16px;cursor:pointer}button:focus-visible,input:focus-visible{outline:3px solid white}button[aria-pressed=true],#start{background:#ffc58d;color:#202727;border-color:#ffc58d}#start{font-weight:700;min-width:130px}fieldset{border:0;margin:16px 0;padding:0}legend{color:#c9d7d1;margin-bottom:6px}.buttons{display:flex;flex-wrap:wrap;gap:6px}label{display:block;margin:16px 0}input{width:18px;height:18px;vertical-align:middle}footer{margin-top:28px;border-top:1px solid #405157;padding-top:12px}#inputState,#placeState{font-size:.9rem}#inputState{margin-top:8px}
+</style>
+<main>
+<header><a href="/products/#music">GUMP / Music apps</a><span>Instrument v6</span></header>
+<h1>Field Score</h1>
+<p>A soundtrack for your walk. Settle into a stride to bring in the band. Pick up the pace for the chorus, then stop to hear it resolve.</p>
+<figure><canvas id="terrain" aria-label="Layered terrain showing the intensity of the arrangement"></canvas><figcaption class="row"><strong id="section">Ready</strong><span id="bar">Band at rest</span></figcaption></figure>
+<div class="row"><button id="start">Start score</button><span id="meter"></span></div>
+<fieldset><legend>Movement input</legend><div class="buttons" id="inputs"><button data-mode="phone" aria-pressed="true">Phone</button><button data-mode="still" aria-pressed="false">Still</button><button data-mode="walk" aria-pressed="false">Walk</button><button data-mode="hurry" aria-pressed="false">Hurry</button></div></fieldset>
+<p id="inputState" role="status">Use Phone as you move, or try the three manual cues.</p>
+<label><input type="checkbox" id="place"> Let nearby places color the harmony</label><p id="placeState">The time of day sets the opening mood.</p>
+<footer><span>Field Score</span><span>Generated on this device</span></footer>
+</main>
+<script>
+'use strict';
+let actx, root, scale, tones;
+function mtof(m){return 440 * 2 ** ((m-69)/12)}
+function keyRoot(){return root}
+var master, comp, dryBus, sendBus, verb, verbGain, noiseBuf;
+
+function buildRoom(){
+  master = actx.createGain(); master.gain.value = 0.9;
+  comp = actx.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.ratio.value = 5;
+  comp.attack.value = 0.006; comp.release.value = 0.24;
+
+  dryBus = actx.createGain(); dryBus.gain.value = 1;
+  sendBus = actx.createGain(); sendBus.gain.value = 1;
+
+  verb = actx.createConvolver();
+  verb.buffer = makeImpulse(3.0, 2.6);
+  verbGain = actx.createGain(); verbGain.gain.value = 0.55;
+
+  dryBus.connect(comp);
+  sendBus.connect(verb); verb.connect(verbGain); verbGain.connect(comp);
+  comp.connect(master); master.connect(actx.destination);
+
+  noiseBuf = makeNoise(1.2);
+}
+
+function makeImpulse(seconds, decay){
+  var rate = actx.sampleRate;
+  var len = Math.floor(rate * seconds);
+  var buf = actx.createBuffer(2, len, rate);
+  for(var ch = 0; ch < 2; ch++){
+    var d = buf.getChannelData(ch);
+    for(var i = 0; i < len; i++){
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+
+function makeNoise(seconds){
+  var rate = actx.sampleRate;
+  var len = Math.floor(rate * seconds);
+  var buf = actx.createBuffer(1, len, rate);
+  var d = buf.getChannelData(0);
+  for(var i = 0; i < len; i++){ d[i] = Math.random() * 2 - 1; }
+  return buf;
+}
+
+function out(node, dry, send, pan){
+  var p = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  var dg = actx.createGain(); dg.gain.value = dry;
+  var sg = actx.createGain(); sg.gain.value = send;
+  if(p){ p.pan.value = pan || 0; node.connect(p); p.connect(dg); p.connect(sg); }
+  else { node.connect(dg); node.connect(sg); }
+  dg.connect(dryBus); sg.connect(sendBus);
+}
+
+// ── VOICES ─────────────────────────────────────────────────────────
+
+// Harp pluck — the sparkle fingers. Velocity opens the filter (soft touch
+// = felt, hard touch = bright), and a tiny octave ping gives the string
+// its glint without any extra synth cheese.
+function pluck(t, midi, vel, pan){
+  var f = mtof(midi);
+  var o = actx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+  var lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1;
+  lp.frequency.setValueAtTime(f * (3.2 + 2.6 * vel), t);
+  lp.frequency.exponentialRampToValueAtTime(f * 1.3, t + 0.3);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+  o.connect(lp); lp.connect(g); out(g, 0.8, 0.4, pan);
+  o.start(t); o.stop(t + 0.95);
+  var p2 = actx.createOscillator(); p2.type = 'sine'; p2.frequency.value = f * 2;
+  var g2 = actx.createGain();
+  g2.gain.setValueAtTime(0.045 * vel, t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  p2.connect(g2); out(g2, 0.6, 0.5, pan);
+  p2.start(t); p2.stop(t + 0.2);
+}
+
+// Music-box bell — the melody voice (2-op FM). The modulation index is the
+// difference between a music box and a fire alarm: keep it low and brief.
+function bell(t, midi, vel, pan){
+  var f = mtof(midi);
+  var car = actx.createOscillator(); car.type = 'sine'; car.frequency.value = f;
+  var mod = actx.createOscillator(); mod.type = 'sine'; mod.frequency.value = f * 3.01;
+  var mg = actx.createGain();
+  mg.gain.setValueAtTime(f * (0.7 + 0.5 * vel), t);
+  mg.gain.exponentialRampToValueAtTime(f * 0.01, t + 0.3);
+  mod.connect(mg); mg.connect(car.frequency);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.24 * vel, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
+  car.connect(g); out(g, 0.7, 0.5, pan);
+  car.start(t); mod.start(t);
+  car.stop(t + 2.0); mod.stop(t + 2.0);
+}
+
+// Deep soft bass
+function bassNote(t, midi, vel, dur){
+  var f = mtof(midi);
+  var o1 = actx.createOscillator(); o1.type = 'sine'; o1.frequency.value = f;
+  var o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f;
+  var g2 = actx.createGain(); g2.gain.value = 0.3;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.34 * vel, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o1.connect(g); o2.connect(g2); g2.connect(g); out(g, 1, 0.06, 0);
+  o1.start(t); o2.start(t); o1.stop(t + dur + 0.1); o2.stop(t + dur + 0.1);
+}
+
+// Pad — two detuned saws per note, held until the chord changes
+var padNodes = [];
+function padChord(t, brightness){
+  // release the old chord
+  for(var i = 0; i < padNodes.length; i++){
+    var n = padNodes[i];
+    n.g.gain.cancelScheduledValues(t);
+    n.g.gain.setValueAtTime(n.g.gain.value || 0.0001, t);
+    n.g.gain.exponentialRampToValueAtTime(0.0001, t + 2.0);
+    n.o1.stop(t + 2.2); n.o2.stop(t + 2.2);
+    if(n.o3){ n.o3.stop(t + 2.2); } if(n.lfo){ n.lfo.stop(t + 2.2); }
+  }
+  padNodes = [];
+  var lvl = 0.05;
+  for(var k = 0; k < 3; k++){
+    var midi = keyRoot() + tones[k];
+    var f = mtof(midi);
+    var o1 = actx.createOscillator(); o1.type = 'sawtooth';
+    var o2 = actx.createOscillator(); o2.type = 'sawtooth';
+    var o3 = actx.createOscillator(); o3.type = 'triangle';   // sub-octave body
+    o1.frequency.value = f; o2.frequency.value = f; o3.frequency.value = f / 2;
+    o1.detune.value = -5; o2.detune.value = 5;
+    // static detune sounds like a preset — a slow drift makes it breathe
+    var lfo = actx.createOscillator(); lfo.type = 'sine';
+    lfo.frequency.value = 0.09 + k * 0.03;
+    var la = actx.createGain(); la.gain.value = 3.2;
+    var lb = actx.createGain(); lb.gain.value = -3.2;
+    lfo.connect(la); la.connect(o1.detune);
+    lfo.connect(lb); lb.connect(o2.detune);
+    var g3 = actx.createGain(); g3.gain.value = 0.35;
+    var lp = actx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 300 + brightness * 1400; lp.Q.value = 0.5;
+    var g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(lvl, t + 2.0);
+    o1.connect(lp); o2.connect(lp); o3.connect(g3); g3.connect(lp); lp.connect(g);
+    out(g, 0.75, 0.45, (k - 1) * 0.3);
+    o1.start(t); o2.start(t); o3.start(t); lfo.start(t);
+    padNodes.push({ o1: o1, o2: o2, o3: o3, lfo: lfo, g: g, lp: lp });
+  }
+}
+
+function kick(t, vel){
+  var o = actx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(110, t);
+  o.frequency.exponentialRampToValueAtTime(42, t + 0.09);
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.5 * vel, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  o.connect(g); out(g, 1, 0.02, 0);
+  o.start(t); o.stop(t + 0.2);
+}
+
+function hat(t, vel){
+  var s = actx.createBufferSource(); s.buffer = noiseBuf;
+  var hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.08 * vel, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  s.connect(hp); hp.connect(g); out(g, 0.9, 0.1, 0.2);
+  s.start(t); s.stop(t + 0.08);
+}
+
+function shaker(t, vel){
+  var s = actx.createBufferSource(); s.buffer = noiseBuf;
+  var bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 4200; bp.Q.value = 1.4;
+  var g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.06 * vel, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  s.connect(bp); bp.connect(g); out(g, 0.9, 0.1, -0.25);
+  s.start(t); s.stop(t + 0.12);
+}
+
+
+const $ = id => document.getElementById(id);
+const names = {opening:'Prelude', verse:'On foot', lift:'Chorus', landing:'Home cadence', quiet:'Afterglow'};
+const changes = {opening:[0,3], verse:[0,5,3,4], lift:[3,4,5,0], landing:[4,0], quiet:[0]};
+let mode='phone', running=false, starting=false, session=0, timer, motionTimer, watch=null;
+let section='opening', sectionBar=0, step=0, next=0, bpm=92, hook=[], rhythm=[], queued=null;
+let lastPeak=-Infinity, armed=true, peaks=[], gravity=null, hasSamples=false, accent=false, hurriedSince=null;
+let daylight, placeColor=0, pendingColor=0, placeCell=null;
+function resetMotion(){
+  peaks=[]; lastPeak=-Infinity; armed=true; gravity=null; hasSamples=false; accent=false; hurriedSince=null;
+}
+function motion(event){
+  if(!running || mode!=='phone') return;
+  let a=event.acceleration, mag;
+  const valid=v=>v && [v.x,v.y,v.z].every(Number.isFinite);
+  if(valid(a)) mag=Math.hypot(a.x,a.y,a.z);
+  else {
+    a=event.accelerationIncludingGravity;
+    if(!valid(a)) return;
+    const total=Math.hypot(a.x,a.y,a.z);
+    if(gravity===null) gravity=total;
+    gravity+=0.05*(total-gravity); mag=Math.abs(total-gravity);
+  }
+  if(!hasSamples){hasSamples=true; $('inputState').textContent='Listening for your stride. Keep the page open as you walk.'}
+  const now=performance.now()/1000;
+  if(mag<1.15) armed=true;
+  if(armed && mag>2.0 && now-lastPeak>0.27){
+    if(now-lastPeak>1.25) peaks=[];
+    peaks.push(now); peaks=peaks.slice(-6); lastPeak=now; armed=false;
+    if(mag>8) accent=true;
+  }
+}
+function activity(){
+  if(mode!=='phone') return mode;
+  if(performance.now()/1000-lastPeak>1.8 || peaks.length<3) return 'still';
+  const gaps=peaks.slice(1).map((p,i)=>p-peaks[i]).sort((a,b)=>a-b);
+  return gaps[Math.floor(gaps.length/2)]<0.47?'hurry':'walk';
+}
+function chooseSection(cue){
+  if(section==='landing') return sectionBar>=2?(cue==='still'?'quiet':'verse'):'landing';
+  if(section==='quiet'||section==='opening') return cue==='still'?section:'verse';
+  if(cue==='still') return 'landing';
+  if(section==='verse' && sectionBar>=2 && hurriedSince!==null && actx.currentTime-hurriedSince>=3) return 'lift';
+  if(section==='lift' && cue==='walk' && sectionBar>=2) return 'verse';
+  return section;
+}
+function degree(n){return root+scale[n%7]+12*Math.floor(n/7)}
+function setChord(deg){tones=[0,2,4].map(i=>degree(deg+i)-root)}
+function snare(t,v){
+  const src=actx.createBufferSource(), hp=actx.createBiquadFilter(), g=actx.createGain();
+  src.buffer=noiseBuf; hp.type='highpass'; hp.frequency.value=1200;
+  g.gain.setValueAtTime(v*.19,t); g.gain.exponentialRampToValueAtTime(.0001,t+.13);
+  src.connect(hp); hp.connect(g); out(g,.9,.16,-.08); src.start(t); src.stop(t+.15);
+}
+function schedule(t){
+  const slot=step%16, cue=activity();
+  if(cue==='hurry'){if(hurriedSince===null) hurriedSince=actx.currentTime}else hurriedSince=null;
+  if(slot===0){
+    if(queued && queued!==section){section=queued; sectionBar=0}
+    queued=null; placeColor=pendingColor;
+    bpm=section==='lift'?106:section==='verse'?98:88;
+    const progression=changes[section];
+    let chord=progression[sectionBar%progression.length];
+    if((section==='verse'||section==='lift') && sectionBar%4===2) chord=(chord+placeColor)%7;
+    setChord(chord);
+    if(section!=='quiet'||sectionBar%4===0) padChord(t,section==='lift'?.8:.28);
+    $('section').textContent=names[section];
+    $('bar').textContent='Bar '+(1+Math.floor(step/16))+' · '+bpm+' BPM';
+  }
+  const band=section==='verse'||section==='lift', chorus=section==='lift';
+  if(band){
+    if(slot===0||slot===8||(chorus && slot===10)) kick(t,slot===0?.85:.62);
+    if(slot===4||slot===12) snare(t,chorus?.92:.55);
+    if(slot%(chorus?2:4)===0) hat(t,slot%4===0?.72:.52);
+    if(chorus && slot%4===2) shaker(t,.72);
+    if(slot===0||slot===8||(chorus && slot===14)) bassNote(t,root-24+tones[slot===14?2:0],.85,60/bpm*(slot===14?.45:1.35));
+  }
+  if(slot===12) queued=chooseSection(cue);
+  if(queued && queued!==section && (queued==='lift'||queued==='landing') && slot>=13)
+    snare(t, .34+(slot-13)*.19);
+  const idx=rhythm.indexOf(slot);
+  if(idx>=0){
+    let note=degree(hook[idx]);
+    if(section==='quiet' || section==='landing'){
+      if(section==='landing' && sectionBar===1 && idx===3) note=root;
+      if((section==='landing'||sectionBar%4===0) && (idx===0||idx===3)) bell(t,note,.58,0);
+    }else if(chorus || sectionBar%2===0 || idx===0 || idx===2){
+      pluck(t,note,.68,idx%2?.18:-.18);
+      if(chorus) bell(t,note+12,.48,.1);
+    }
+  }
+  if(accent){pluck(t,root+tones[2]+12,.55,-.15); accent=false}
+  if(slot===15) sectionBar++;
+  step++; next+=60/bpm/4;
+}
+function tick(){
+  if(!running || actx.state!=='running') return;
+  if(next<actx.currentTime) next=actx.currentTime+.02;
+  while(next<actx.currentTime+.12) schedule(next);
+  $('meter').textContent={walk:'Walking',hurry:'Quick pace',still:'Still'}[activity()];
+}
+let motionAttempt=0;
+async function armPhone(){
+  const attempt=++motionAttempt;
+  let granted=true;
+  try{
+    if(typeof DeviceMotionEvent==='undefined') granted=false;
+    else if(typeof DeviceMotionEvent.requestPermission==='function') granted=(await DeviceMotionEvent.requestPermission())==='granted';
+  }catch{granted=false}
+  if(attempt!==motionAttempt||mode!=='phone') return;
+  if(!granted){$('inputState').textContent='Motion unavailable. Tap Walk or Hurry to conduct.';return}
+  window.addEventListener('devicemotion',motion);
+  $('inputState').textContent='Waiting for phone movement…';
+  motionTimer=setTimeout(()=>{if(!hasSamples) $('inputState').textContent='No motion readings yet. Try moving the phone, or tap Walk.'},3500);
+}
+function disarm(){
+  motionAttempt++; clearTimeout(motionTimer); window.removeEventListener('devicemotion',motion); resetMotion();
+}
+function selectMode(value){
+  disarm(); mode=value;
+  for(const btn of $('inputs').querySelectorAll('button')) btn.setAttribute('aria-pressed',String(btn.dataset.mode===mode));
+  $('inputState').textContent=mode==='phone'?'Use Phone as you move, or try the three manual cues.':'Manual cue selected. The band changes on musical boundaries.';
+  if(running && mode==='phone') armPhone();
+}
+$('inputs').addEventListener('click',e=>{if(e.target.dataset.mode) selectMode(e.target.dataset.mode)});
+function stopPlace(){
+  if(watch!==null) navigator.geolocation.clearWatch(watch);
+  watch=null; placeCell=null; pendingColor=0;
+}
+function locationInput(){
+  stopPlace();
+  if(!running||!$('place').checked){$('placeState').textContent='The time of day sets the opening mood.';return}
+  if(!navigator.geolocation){$('placeState').textContent='Location unavailable. Using time of day.';return}
+  const token=session;
+  watch=navigator.geolocation.watchPosition(({coords})=>{
+    if(!running||token!==session||!$('place').checked) return;
+    if(coords.accuracy>180){$('placeState').textContent='Waiting for a clearer location.';return}
+    // Retain the last anchor through typical GPS drift near a cell boundary.
+    if(placeCell && Math.hypot((coords.latitude-placeCell.lat)*111000,(coords.longitude-placeCell.lon)*111000*Math.cos(coords.latitude*Math.PI/180))<220) return;
+    placeCell={lat:coords.latitude,lon:coords.longitude};
+    pendingColor=Math.abs(Math.floor(coords.latitude*300)*31+Math.floor(coords.longitude*300))%3;
+    $('placeState').textContent='Local harmony '+(pendingColor+1)+' of 3. Location stays on this device.';
+  },()=>{if(running && token===session && $('place').checked) $('placeState').textContent='Location unavailable. Using time of day.'},{maximumAge:15000,timeout:20000});
+}
+$('place').onchange=locationInput;
+function stop(){
+  running=false; session++; clearInterval(timer); disarm(); stopPlace();
+  if(actx && actx.state!=='closed') actx.close().catch(()=>{});
+  padNodes=[]; $('start').textContent='Start score'; $('section').textContent='Ready';
+  $('bar').textContent='Band at rest'; $('meter').textContent=''; $('placeState').textContent='The time of day sets the opening mood.';
+  $('inputState').textContent='Use Phone as you move, or try the three manual cues.'; draw();
+}
+async function start(){
+  if(starting)return;
+  if(running){stop();return}
+  starting=true; $('start').disabled=true;
+  try{
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    const resume=actx.resume();
+    running=true; session++; resetMotion();
+    if(mode==='phone') armPhone();
+    locationInput(); await resume;
+    if(!running)return;
+    buildRoom();
+    const hour=new Date().getHours(); daylight=hour>=7&&hour<18;
+    scale=daylight?[0,2,4,5,7,9,11]:[0,2,3,5,7,9,10];
+    root=[57,60,62,65][Math.floor(hour/6)];
+    hook=[0,Math.random()<.5?2:4,Math.random()<.5?5:3,Math.random()<.5?1:2];
+    rhythm=Math.random()<.5?[0,3,8,12]:[0,6,9,14];
+    queued=null; step=0; sectionBar=0; section='opening'; next=actx.currentTime+.05;
+    $('start').textContent='End score'; tick(); timer=setInterval(tick,25); draw();
+  }catch{stop(); $('inputState').textContent='Audio could not start. Tap Start score to retry.'}
+  finally{starting=false; $('start').disabled=false}
+}
+$('start').onclick=start;
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&running) stop()});
+window.addEventListener('pagehide',()=>{if(running)stop()});
+const canvas=$('terrain'), pen=canvas.getContext('2d');
+let frame=0;
+function draw(){
+  cancelAnimationFrame(frame);
+  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,2);
+  if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}
+  pen.setTransform(dpr,0,0,dpr,0,0);pen.fillStyle='#14242b';pen.fillRect(0,0,w,h);
+  const moving=running&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const phase=moving?actx.currentTime*.13:0, amp=running&&section==='lift'?1.32:1;
+  pen.fillStyle='#ffc58d';pen.beginPath();pen.arc(w*.73,h*.29,h*.12,0,Math.PI*2);pen.fill();
+  for(let i=0;i<13;i++){
+    pen.beginPath();
+    for(let x=0;x<=w+3;x+=3){
+      const u=x/w, y=h*(.40+i*.042+amp*(.11*Math.sin(u*8+i*.16+phase)+.06*Math.sin(u*18-i*.2-phase*.6)+.018*Math.sin(u*42+i*.17)));
+      if(x===0)pen.moveTo(x,y);else pen.lineTo(x,y);
+    }
+    pen.strokeStyle=i%4===0?'#e9b07e':'#629792';pen.lineWidth=i%4===0?1.6:1;pen.stroke();
+  }
+  if(moving)frame=requestAnimationFrame(draw);
+}
+window.addEventListener('resize',draw);draw();
+</script>
+</html>
