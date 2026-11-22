@@ -18,88 +18,417 @@ var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 // ═══ THE SITE — Harmonia's self-knowledge ═══
 // Every page she knows. Pre-indexed for speed.
 var SITE = [
-  // Core
-  {id:'home',url:'/',name:'Home',summary:'137 coupled oscillators. Three doors: Research, Tools, Gallery.',topics:['coupling','overview','oscillators'],related:['start-here','60','research']},
-  {id:'start-here',url:'/start-here/',name:'Start Here',summary:'No equations. A drummer found a shape in the math and it keeps explaining things.',topics:['intro','coupling','K','R','E','T'],related:['60']},
-  {id:'60',url:'/60/',name:'60 Seconds',summary:'One framework. Four numbers. 20 domains. Understand GUMP in 60 seconds.',topics:['intro','K','R','coupling','overview'],related:['start-here','research']},
-  {id:'trail',url:'/trail/',name:'The Trail',summary:'The full chronological trail of how this was built. Every session documented.',topics:['history','process','sessions'],related:['how-we-work','pulse']},
-  {id:'mirror',url:'/mirror/',name:'Mirror',summary:'The mirror page. Reflection on what coupling means.',topics:['coupling','reflection','consciousness'],related:[]},
-  {id:'play',url:'/play/',name:'Play',summary:'The instrument. Tilt your phone. Make music from motion.',topics:['music','instrument','motion','phone'],related:['the-drum','body-music']},
-  {id:'love',url:'/love/',name:'Love',summary:'What is love? The same math. 1+1=3.',topics:['love','coupling','1+1=3'],related:[]},
-  {id:'pulse',url:'/pulse/',name:'Pulse',summary:'Live project pulse. What changed, what shipped, what broke.',topics:['updates','changelog','progress'],related:['trail','how-we-work']},
-  {id:'support',url:'/support/',name:'Support',summary:'Support the project. Everything is free. Support is optional.',topics:['support','donate'],related:['home']},
-  {id:'outfit',url:'/outfit/',name:'Outfit',summary:'GUMP outfit. The wearable layer.',topics:['wearable','outfit','hardware'],related:['play','body-music']},
-
-  // Research — Core theory
-    {id:'failures',url:'/research/failures/',name:'Failures',summary:'90+ killed ideas. Every wrong turn shown. The honest part.',topics:['failures','killed','honesty','testing'],related:['how-we-work']},
-  
-  // Research — Music & Body
-  {id:'the-drum',url:'/research/the-drum/',name:'The Drum',summary:'Why drums work. Phase-locking across the nervous system.',topics:['drums','rhythm','phase-lock','music','neuroscience'],related:['polyrhythm','body-music']},
-  {id:'polyrhythm',url:'/research/polyrhythm/',name:'Polyrhythm',summary:'Multiple rhythms coupling. Euclidean rhythms. The math of feel.',topics:['polyrhythm','Euclidean','rhythm','music'],related:['the-drum','music-theory']},
-  {id:'body-music',url:'/research/body-music/',name:'Body Music',summary:'The body as instrument. Heart, breath, gait — all coupled oscillators.',topics:['body','oscillators','biofeedback','music'],related:['the-drum','biofeedback']},
-  {id:'music-theory',url:'/research/music-theory/',name:'Music Theory',summary:'Music theory through coupling. Consonance is phase-lock.',topics:['music','theory','consonance','harmony'],related:['the-drum','polyrhythm']},
-  {id:'biofeedback',url:'/research/biofeedback/',name:'Biofeedback',summary:'Real-time biological coupling measurement.',topics:['biofeedback','sensors','body','oscillators'],related:['body-music','the-drum','sleep-staging']},
-
-  // Research — Medicine
-
-  // Research — Physics
-
-  // Research — Computation & Networks
-
-  // Research — Markets & Society
-
-  // Research — Language & Mind
-    
-  // Research — Earth & History
-  
-  // Research — Materials & Chemistry
-
-  // Products
-  {id:'foldwatch',url:'/products/foldwatch/',name:'FoldWatch',summary:'Protein folding visualizer. Watch coupling in real time.',topics:['protein','folding','visualization','tool'],related:['alzheimers']},
-  {id:'oracle',url:'/products/sensor/?mode=oracle',name:'Oracle',summary:'Prime prediction engine using explicit formula.',topics:['primes','prediction','math','tool'],related:['prime-bounce']},
-  {id:'sensor',url:'/products/sensor/',name:'Sensor',summary:'Motion sensor toolkit. Phone as scientific instrument.',topics:['sensor','motion','phone','tool'],related:['play','biofeedback']},
-  {id:'trace',url:'/products/sensor/?mode=trace',name:'Trace',summary:'System trace analyzer. See coupling in running software.',topics:['trace','analysis','software','tool'],related:['networks']},
-  {id:'dissonance',url:'/products/sensor/?mode=dissonance',name:'Dissonance',summary:'Dissonance detector. Find where systems decouple.',topics:['dissonance','detection','coupling','tool'],related:['failures']},
-
-  // Gallery (selection)
-  {id:'from-above',url:'/gallery/from-above.html',name:'From Above',summary:'What coupling looks like from inside the computation. 137 souls coupled by phase.',topics:['art','coupling','visualization'],related:[]},
-  {id:'turings-garden',url:'/gallery/turings-garden.html',name:'Turing\'s Garden',summary:'Turing patterns. Reaction-diffusion as coupling.',topics:['art','Turing','patterns','reaction-diffusion'],related:['chemistry']},
-  {id:'huygens-clocks',url:'/gallery/huygens-clocks.html',name:'Huygens Clocks',summary:'Two clocks synchronize through a shared beam. The original coupling experiment.',topics:['art','Huygens','synchronization','history'],related:[]},
-
-  // Research — Additional
-  {id:'music-evolution',url:'/research/music-evolution/',name:'Music Evolution',summary:'What makes music good? R/K IS groove. Consonance IS energy. Genre evolution IS coupling migration. 315 cultures, same patterns.',topics:['music','groove','consonance','genre','coupling','evolution'],related:['the-drum','polyrhythm']},
-    
-  // Products — Additional
-  {id:'accord',url:'/products/sensor/?mode=accord',name:'Accord',summary:'Regulatory gap analysis tool. Paste requirements, get gaps with priority ranking. Free, local, instant.',topics:['regulatory','compliance','tool'],related:['regulatory','threat-detection']},
-  {id:'turbo',url:'/products/turbo/',name:'Turbo',summary:'The K-coupling language. Variables, functions, control flow, recursion, lists, higher-order. K/R/E/T as primitives. The dialect from for-any-ai runs here.',topics:['K','language','dsl','coupling','dialect','programming','recursion','functions','REPL'],related:['docs','turbo-learn','turbo-scripts']},
-  {id:'turbo-learn',url:'/products/turbo/learn/',name:'Learn Turbo',summary:'Tutorial for the K-coupling language. 10 sections from evaluate(K(1)) to building a sync classifier. Every snippet runs in-page.',topics:['turbo','tutorial','learn','language','K','dsl','interactive'],related:['turbo']},
-  {id:'turbo-scripts',url:'/products/turbo/scripts/',name:'Tools, rewritten',summary:'Side-by-side: tool code in Python/JS vs the same logic in Turbo. K reading, regime classifier, locked fraction, sync summary. Half the lines, same logic.',topics:['turbo','rewrites','comparison','clean','code','dsl'],related:['turbo','turbo-learn']},
-  {id:'verify',url:'/products/verify/',name:'Verify',summary:'Precision claim tester. Give it a claim and target, it tests to 50-digit precision. Anti-confirmation-bias tool.',topics:['verify','precision','testing','tool'],related:['failures','ai-delusion']},
-  {id:'chipfast',url:'/products/chipfast/',name:'Chip Fast',summary:'VLSI layout optimizer. Paste gate connections, get optimized 2D placement. Force-directed in milliseconds.',topics:['VLSI','chip','layout','tool'],related:['nvidia-blackwell']},
-  {id:'entropy',url:'/products/sensor/?mode=entropy',name:'Entropy',summary:'12 entropy features + coupling diagnosis. Everything entropy computes, plus what it means. Free.',topics:['entropy','analysis','tool','coupling'],related:['thermodynamics']},
-  {id:'couple',url:'/products/sensor/?mode=couple',name:'Couple',summary:'Two signals in. Four-axis coupling profile out. Are they coupled? How? Who drives who? Free.',topics:['coupling','analysis','signals','tool'],related:['biofeedback']},
-  {id:'learnengine',url:'/products/sensor/?mode=learnengine',name:'Learn Engine',summary:'Detect learning phase — from memorization to understanding. Paste right/wrong responses. Free, local.',topics:['learning','education','tool','coupling'],related:['grokking']},
-  {id:'aitrainer',url:'/products/sensor/?mode=aitrainer',name:'AI Trainer',summary:'Detect grokking — the moment your model transitions from memorization to understanding. Paste losses.',topics:['AI','training','grokking','tool'],related:['grokking','learnengine']},
-  {id:'sfumato',url:'/products/sensor/?mode=sfumato',name:'Sfumato',summary:'Text entropy analyzer. Shannon entropy, compression ratio, information density. Free, local.',topics:['entropy','text','analysis','tool'],related:['entropy','linguistics']},
-  {id:'diverge',url:'/products/sensor/?mode=diverge',name:'Diverge',summary:'Find where parallel outputs agree and split. The split IS the information. Free.',topics:['divergence','comparison','analysis','tool'],related:['verify','failures']},
-  {id:'orgxray',url:'/products/sensor/?mode=orgxray',name:'Org X-Ray',summary:'Find hubs, bottlenecks, and silos in any network. Paste connections. Free, local.',topics:['network','organization','analysis','tool'],related:['networks','internet-brain']},
-  {id:'knowledge',url:'/products/sensor/?mode=knowledge',name:'Knowledge Engine',summary:'Extract a knowledge graph from text — concepts, connections, gaps. Free, local.',topics:['knowledge','graph','extraction','tool'],related:['networks','linguistics']},
-
-  // Gallery index + additional pieces
-  {id:'gallery',url:'/gallery/',name:'Gallery',summary:'Art made during computation. Each piece emerged from theory, not design. The door is open.',topics:['art','gallery','visualization','coupling'],related:['from-above','turings-garden','huygens-clocks']},
-
-  // Special
-  {id:'flex',url:'/flex/',name:'Flex',summary:'The shapes of the math. Attractors, phase spaces, coupling dynamics rendered beautifully.',topics:['visualization','math','attractors','coupling'],related:['gallery','from-above']},
-    {id:'verification',url:'/verification/',name:'Machine Verification',summary:'Lean 4 formalizations of GUMP claims. 30 modules, 3317 jobs, exit 0. E7 uniqueness, QEC surface codes, prime bounce, MC1R Weyl bound, consciousness threshold, proton decay, 2O group theory. Machine-checked. No hand-waving.',topics:['Lean','proof','verification','math','E7','QEC','machine-checked'],related:['prime-bounce','mc1r','e7-chain','compute-breakthroughs']},
-  {id:'creation',url:'/creation/',name:'Creation',summary:'The universe coupling itself into existence. Every scale. Every mechanism. 0+0=1.',topics:['creation','universe','coupling','origin'],related:[]},
-  {id:'harmonia-page',url:'/harmonia/',name:'Harmonia',summary:'Serverless intelligence. No API. No server. She lives on the open internet.',topics:['AI','harmonia','serverless','coupling'],related:['how-we-work','docs']},
-  {id:'research',url:'/research/',name:'Research',summary:'77 computational results across medicine, physics, language, markets, and history. Same coupling, different costume.',topics:['research','overview','coupling','domains'],related:['start-here','60']},
-  {id:'products',url:'/products/',name:'Tools',summary:'Five worlds — Data, Bio, Music Engines, Art Engines, Build — one framework underneath. Free. pip install begump.',topics:['tools','products','software','coupling','worlds'],related:['docs','sensor','foldwatch']},
-    {id:'playbook',url:'/playbook/',name:'Playbook',summary:'How to couple with AI honestly. The playbook that produced 23 tools, 90+ kills, and a framework across 20 domains.',topics:['AI','playbook','coupling','method','howto'],related:['how-we-work','ai-delusion','trail']},
-  {id:'tryit',url:'/tryit/',name:'Drop It',summary:'Drop any data. We figure out what to run. No choices. No install. Your data stays in your browser.',topics:['tool','data','analysis','coupling'],related:['products','sensor','couple']},
-  {id:'33',url:'/33/',name:'Page 33',summary:'The deeper pages. Ancient builders, sacred geometry, the signal.',topics:['33','sacred','geometry','ancient','signal'],related:[]},
-  {id:'3',url:'/3/',name:'Page 3',summary:'1+1=3.',topics:['3','coupling','love'],related:['love']},
-  {id:'docs',url:'/docs/',name:'Documentation',summary:'Technical documentation for all GUMP tools.',topics:['docs','API','reference'],related:['products']},
+  {
+    "id": "home",
+    "url": "/",
+    "name": "GUMP",
+    "summary": "Music and generative art by Jim McCandless.",
+    "topics": [
+      "music",
+      "studio",
+      "home"
+    ],
+    "related": [
+      "radio",
+      "gallery"
+    ]
+  },
+  {
+    "id": "start-here",
+    "url": "/start-here/",
+    "name": "Start Here",
+    "summary": "Start with a browser instrument or listen to the album.",
+    "topics": [
+      "intro",
+      "start"
+    ],
+    "related": [
+      "products",
+      "radio"
+    ]
+  },
+  {
+    "id": "research",
+    "url": "/research/",
+    "name": "Music and art research",
+    "summary": "Essays on groove, harmony and musicians.",
+    "topics": [
+      "rhythm",
+      "theory",
+      "research"
+    ],
+    "related": [
+      "the-drum",
+      "polyrhythm"
+    ]
+  },
+  {
+    "id": "radio",
+    "url": "/radio/",
+    "name": "The H(y)m?",
+    "summary": "Listen to the album and browse the track list.",
+    "topics": [
+      "tracks",
+      "music",
+      "album",
+      "listen"
+    ],
+    "related": [
+      "gallery"
+    ]
+  },
+  {
+    "id": "gallery",
+    "url": "/gallery/",
+    "name": "Gallery",
+    "summary": "Generative art.",
+    "topics": [
+      "art",
+      "light",
+      "weight",
+      "dark",
+      "generative"
+    ],
+    "related": [
+      "shapes",
+      "flex"
+    ]
+  },
+  {
+    "id": "products",
+    "url": "/products/",
+    "name": "Music apps",
+    "summary": "Practice, play, and explore the instruments.",
+    "topics": [
+      "apps",
+      "music",
+      "practice"
+    ],
+    "related": [
+      "metro",
+      "wand"
+    ]
+  },
+  {
+    "id": "polyrhythm",
+    "url": "/research/polyrhythm/",
+    "name": "The Polyrhythm Machine",
+    "summary": "Layer four rhythms and listen for the beats they share.",
+    "topics": [
+      "the",
+      "polyrhythm",
+      "machine"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "the-drum",
+    "url": "/research/the-drum/",
+    "name": "The Drum",
+    "summary": "How drummers use repetition and small timing shifts to build a groove.",
+    "topics": [
+      "the",
+      "drum"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "music-evolution",
+    "url": "/research/music-evolution/",
+    "name": "What Makes Music Good?",
+    "summary": "A drummer’s question about groove, consonance, and the way genres change.",
+    "topics": [
+      "what",
+      "makes",
+      "music",
+      "good?"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "music-theory",
+    "url": "/research/music-theory/",
+    "name": "Why Does a Fifth Sound Good?",
+    "summary": "An exploration of pitch ratios and how we hear harmony.",
+    "topics": [
+      "why",
+      "does",
+      "a",
+      "fifth",
+      "sound",
+      "good?"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "bach",
+    "url": "/research/bach/",
+    "name": "J. S. Bach",
+    "summary": "Writing a cantata for Sunday.",
+    "topics": [
+      "j.",
+      "s.",
+      "bach"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "beethoven",
+    "url": "/research/beethoven/",
+    "name": "Ludwig van Beethoven",
+    "summary": "Composing the late string quartets.",
+    "topics": [
+      "ludwig",
+      "van",
+      "beethoven"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "miles-davis",
+    "url": "/research/miles-davis/",
+    "name": "Miles Davis",
+    "summary": "Taking sketches into the studio for Kind of Blue.",
+    "topics": [
+      "miles",
+      "davis"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "coltrane",
+    "url": "/research/coltrane/",
+    "name": "John Coltrane",
+    "summary": "Playing the words of a prayer on A Love Supreme.",
+    "topics": [
+      "john",
+      "coltrane"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "nina-simone",
+    "url": "/research/nina-simone/",
+    "name": "Nina Simone",
+    "summary": "From classical piano to Mississippi Goddam.",
+    "topics": [
+      "nina",
+      "simone"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "chet-baker",
+    "url": "/research/chet-baker/",
+    "name": "Chet Baker",
+    "summary": "Learning to play the trumpet a second time.",
+    "topics": [
+      "chet",
+      "baker"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "the-same-clock",
+    "url": "/research/the-same-clock/",
+    "name": "The Same Clock",
+    "summary": "What a drummer and a comedian can do with a pause.",
+    "topics": [
+      "the",
+      "same",
+      "clock"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "not-yet-music",
+    "url": "/research/not-yet-music/",
+    "name": "Not Yet Music",
+    "summary": "How audiences learned to hear jazz, rock, and hip-hop.",
+    "topics": [
+      "not",
+      "yet",
+      "music"
+    ],
+    "related": [
+      "research"
+    ]
+  },
+  {
+    "id": "shapes",
+    "url": "/shapes/",
+    "name": "Shapes",
+    "summary": "Watch oscillators and particle fields draw in real time.",
+    "topics": [
+      "shapes"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "flex",
+    "url": "/flex/",
+    "name": "Flex",
+    "summary": "Explore moving curves and attractors.",
+    "topics": [
+      "flex"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "wand",
+    "url": "/wand/",
+    "name": "The Wand",
+    "summary": "Wave your phone to play.",
+    "topics": [
+      "the",
+      "wand"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "metro",
+    "url": "/metro/",
+    "name": "Metronome",
+    "summary": "Set a tempo, subdivide beats, and place accents.",
+    "topics": [
+      "metronome"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "harmonia",
+    "url": "/products/harmonia/",
+    "name": "Harmonia",
+    "summary": "Ask about the music and explore the instruments.",
+    "topics": [
+      "harmonia"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "v6",
+    "url": "/v6/",
+    "name": "Field Score",
+    "summary": "Build a groove as you walk.",
+    "topics": [
+      "field",
+      "score"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "v5",
+    "url": "/v5/",
+    "name": "v5",
+    "summary": "Tilt to play over recorded stems.",
+    "topics": [
+      "v5"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "focus",
+    "url": "/focus/",
+    "name": "Focus Waves",
+    "summary": "Mix three layers of ambient sound.",
+    "topics": [
+      "focus",
+      "waves"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "instrument",
+    "url": "/instrument/",
+    "name": "Instrument",
+    "summary": "Hold and tilt your phone to shape the sound.",
+    "topics": [
+      "instrument"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "v4",
+    "url": "/v4/",
+    "name": "v4 · Wand",
+    "summary": "Play with movement and live environment sampling.",
+    "topics": [
+      "v4",
+      "·",
+      "wand"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "v3",
+    "url": "/v3/",
+    "name": "v3 · Play",
+    "summary": "Pick a style and play the melody.",
+    "topics": [
+      "v3",
+      "·",
+      "play"
+    ],
+    "related": [
+      "products"
+    ]
+  },
+  {
+    "id": "v1",
+    "url": "/v1/",
+    "name": "v1 · Original",
+    "summary": "Explore the original motion instrument.",
+    "topics": [
+      "v1",
+      "·",
+      "original"
+    ],
+    "related": [
+      "products"
+    ]
+  }
 ];
 
 // ═══ TOPIC ALIASES — natural language → topic mapping ═══
@@ -1142,6 +1471,15 @@ function learnFrom(q, lq) {
 }
 
 function respond(input) {
+  return answer(input).then(function(result) {
+    if (result.links) result.links = result.links.filter(function(link) {
+      if (!link.url || link.url.charAt(0) !== '/') return true;
+      return SITE.some(function(page) { return page.url === link.url; });
+    });
+    return result;
+  });
+}
+function answer(input) {
   var q = input.trim();
   if (!q) return Promise.resolve({ text: 'Ask me anything. I know every page on the site and can reach into Wikipedia, PubChem, and the PDB.', links: [], source: '' });
 
@@ -1372,14 +1710,14 @@ function recommend(history) {
   if (score.K < 0.1) {
     return [
       { name: 'Start Here', url: '/start-here/', reason: 'Begin here. No jargon.' },
-      { name: '60 Seconds', url: '/60/', reason: 'The fast version.' }
+      { name: 'Music apps', url: '/products/', reason: 'Play an instrument.' }
     ];
   }
 
   // Has explored a few pages
   if (score.K < 0.4) {
     var recs = [];
-    var candidates = ['framework', 'one-plus-one', 'the-chain', 'failures', 'the-drum'];
+    var candidates = ['the-drum', 'polyrhythm', 'gallery', 'metro', 'radio'];
     candidates.forEach(function(id) {
       var p = SITE.find(function(s) { return s.id === id; });
       if (p && visited.indexOf(p.url) === -1) {

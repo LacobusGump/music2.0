@@ -63,7 +63,7 @@
       '<button class="gr-play" aria-label="play">▶</button>' +
       '<div class="gr-now"><span class="gr-dot"></span><a class="gr-title"></a></div>' +
       '<button class="gr-next" aria-label="next">⏭</button>' +
-      '<a class="gr-full" href="/radio/" title="open the full show">the show</a>' +
+      '<a class="gr-full" href="/radio/" title="Open the album">album</a>' +
       '<div class="gr-prog"></div>';
     document.body.appendChild(bar);
     // The bar is fixed and floats over normal-flow content — the page must reserve real space
@@ -97,7 +97,7 @@
       idx = (i % PLAY.length + PLAY.length) % PLAY.length; triedFb = false;
       a.src = CDN + PLAY[idx].f;                 // jsDelivr first
       titleEl.textContent = PLAY[idx].t;
-      if (PLAY[idx].url){ titleEl.href = PLAY[idx].url; titleEl.title = 'go study where this one came from'; } // like it? click through and read
+      if (PLAY[idx].url){ titleEl.href = PLAY[idx].url; titleEl.title = 'Open the page for this track'; } // like it? click through and read
       else { titleEl.removeAttribute('href'); titleEl.removeAttribute('title'); } // a ghost ship has no port
       refreshInline();
     }
